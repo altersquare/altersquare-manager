@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useToast } from "@/components/Toast";
+import { SecretModal } from "@/components/SecretModal";
 
 interface Secret {
   name: string;
@@ -19,6 +20,12 @@ export default function RepoSecretsPage() {
   const [secrets, setSecrets] = useState<Secret[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [secretModal, setSecretModal] = useState<{
+    open: boolean;
+    mode: "create" | "update";
+    secretName?: string;
+  }>({ open: false, mode: "create" });
 
   const fetchSecrets = async () => {
     setLoading(true);
@@ -89,11 +96,7 @@ export default function RepoSecretsPage() {
           </div>
           <button
             onClick={() =>
-              window.dispatchEvent(
-                new CustomEvent("open-secret-modal", {
-                  detail: { mode: "create" },
-                })
-              )
+              setSecretModal({ open: true, mode: "create" })
             }
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors"
           >
@@ -230,14 +233,11 @@ export default function RepoSecretsPage() {
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   onClick={() =>
-                    window.dispatchEvent(
-                      new CustomEvent("open-secret-modal", {
-                        detail: {
-                          mode: "update",
-                          secretName: secret.name,
-                        },
-                      })
-                    )
+                    setSecretModal({
+                      open: true,
+                      mode: "update",
+                      secretName: secret.name,
+                    })
                   }
                   className="px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-700/60 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors"
                 >
@@ -259,6 +259,26 @@ export default function RepoSecretsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Secret create/update modal */}
+      {secretModal.open && (
+        <SecretModal
+          mode={secretModal.mode}
+          secretName={secretModal.secretName}
+          repo={repo}
+          onClose={() => setSecretModal({ open: false, mode: "create" })}
+          onSuccess={() => {
+            setSecretModal({ open: false, mode: "create" });
+            showToast(
+              secretModal.mode === "create"
+                ? "Secret created successfully"
+                : "Secret updated successfully",
+              "success"
+            );
+            fetchSecrets();
+          }}
+        />
       )}
     </main>
   );

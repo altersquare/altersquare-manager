@@ -47,7 +47,7 @@ Adds a per-repo detail page at `/repos/[repo]/secrets` where users can list, cre
 
 ---
 
-### Milestone 3: Frontend — Create/Update modal
+### Milestone 3: Frontend — Create/Update modal ✅
 
 **Goal:** Modal to input secret name + value for creating or updating a secret.
 
