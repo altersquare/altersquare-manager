@@ -1,4 +1,5 @@
 import { Octokit } from "octokit";
+import sodium from "libsodium-wrappers";
 
 const octokit = new Octokit({
   auth: process.env.GITHUB_TOKEN,
@@ -196,4 +197,101 @@ export async function addCollaborator(
     status,
     invitationCreated: status === 201,
   };
+}
+
+// ── Repository Secrets ──────────────────────────────────────────────
+
+export interface RepoSecret {
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * List all Actions secrets for a repository.
+ */
+export async function listRepoSecrets(repo: string): Promise<RepoSecret[]> {
+  const secrets: RepoSecret[] = [];
+  let page = 1;
+
+  while (true) {
+    const { data } = await octokit.rest.actions.listRepoSecrets({
+      owner: OWNER,
+      repo,
+      per_page: 100,
+      page,
+    });
+
+    for (const s of data.secrets) {
+      secrets.push({
+        name: s.name,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+      });
+    }
+
+    if (secrets.length >= data.total_count) break;
+    page++;
+  }
+
+  return secrets;
+}
+
+/**
+ * Get the public key for a repository (needed to encrypt secrets).
+ */
+export async function getRepoPublicKey(
+  repo: string
+): Promise<{ key_id: string; key: string }> {
+  const { data } = await octokit.rest.actions.getRepoPublicKey({
+    owner: OWNER,
+    repo,
+  });
+
+  return { key_id: data.key_id, key: data.key };
+}
+
+/**
+ * Create or update a repository secret.
+ * Encrypts the value with the repo's public key using libsodium sealed box.
+ */
+export async function createOrUpdateRepoSecret(
+  repo: string,
+  secretName: string,
+  secretValue: string
+): Promise<void> {
+  await sodium.ready;
+
+  const { key_id, key } = await getRepoPublicKey(repo);
+
+  // Encrypt the secret value
+  const binKey = sodium.from_base64(key, sodium.base64_variants.ORIGINAL);
+  const binValue = sodium.from_string(secretValue);
+  const encryptedBytes = sodium.crypto_box_seal(binValue, binKey);
+  const encrypted_value = sodium.to_base64(
+    encryptedBytes,
+    sodium.base64_variants.ORIGINAL
+  );
+
+  await octokit.rest.actions.createOrUpdateRepoSecret({
+    owner: OWNER,
+    repo,
+    secret_name: secretName,
+    encrypted_value,
+    key_id,
+  });
+}
+
+/**
+ * Delete a repository secret.
+ */
+export async function deleteRepoSecret(
+  repo: string,
+  secretName: string
+): Promise<void> {
+  await octokit.rest.actions.deleteRepoSecret({
+    owner: OWNER,
+    repo,
+    secret_name: secretName,
+  });
 }

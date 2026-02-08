@@ -12,6 +12,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@types/libsodium-wrappers": "^0.7.14",
+    "libsodium-wrappers": "^0.8.2",
     "next": "^16.1.6",
     "octokit": "^5.0.5",
     "react": "^19.2.4",

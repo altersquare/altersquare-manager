@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 interface RepoDetail {
   name: string;
@@ -228,22 +229,18 @@ export default function ReposPage() {
           )}
           <div className="space-y-3">
             {filtered.map((repo, idx) => (
-              <div
+              <Link
                 key={repo.name}
-                className="bg-gray-800/50 border border-gray-800 rounded-xl p-4 flex items-start sm:items-center gap-4 hover:bg-gray-800/80 transition-colors animate-fade-in-up"
+                href={`/repos/${encodeURIComponent(repo.name)}/secrets`}
+                className="block bg-gray-800/50 border border-gray-800 rounded-xl p-4 flex items-start sm:items-center gap-4 hover:bg-gray-800/80 hover:border-gray-700 transition-colors animate-fade-in-up cursor-pointer"
                 style={{ animationDelay: `${idx * 20}ms` }}
               >
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <a
-                      href={repo.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium hover:text-blue-400 transition-colors truncate"
-                    >
+                    <span className="font-medium truncate">
                       {repo.name}
-                    </a>
+                    </span>
                     {/* Visibility badge */}
                     <span
                       className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -254,6 +251,20 @@ export default function ReposPage() {
                     >
                       {repo.private ? "Private" : "Public"}
                     </span>
+                    {/* GitHub external link */}
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        window.open(repo.url, "_blank", "noopener,noreferrer");
+                      }}
+                      className="text-gray-500 hover:text-blue-400 transition-colors"
+                      title="Open on GitHub"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </button>
                   </div>
                   <p className="text-gray-500 text-sm mt-1 truncate">
                     {repo.description || <span className="italic">No description</span>}
@@ -269,7 +280,14 @@ export default function ReposPage() {
                     {repo.collaboratorCount}
                   </span>
                 </div>
-              </div>
+
+                {/* Arrow indicator */}
+                <div className="shrink-0 text-gray-600">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </div>
+              </Link>
             ))}
           </div>
         </>
