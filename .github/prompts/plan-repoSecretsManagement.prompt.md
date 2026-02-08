@@ -60,7 +60,7 @@ Adds a per-repo detail page at `/repos/[repo]/secrets` where users can list, cre
 
 ---
 
-### Milestone 4: Frontend — Delete confirmation + integration
+### Milestone 4: Frontend — Delete confirmation + integration ✅
 
 **Goal:** Delete flow with confirmation, toast feedback, and full integration.
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useToast } from "@/components/Toast";
 import { SecretModal } from "@/components/SecretModal";
+import { DeleteSecretModal } from "@/components/DeleteSecretModal";
 
 interface Secret {
   name: string;
@@ -26,6 +27,11 @@ export default function RepoSecretsPage() {
     mode: "create" | "update";
     secretName?: string;
   }>({ open: false, mode: "create" });
+
+  const [deleteModal, setDeleteModal] = useState<{
+    open: boolean;
+    secretName: string;
+  }>({ open: false, secretName: "" });
 
   const fetchSecrets = async () => {
     setLoading(true);
@@ -245,11 +251,10 @@ export default function RepoSecretsPage() {
                 </button>
                 <button
                   onClick={() =>
-                    window.dispatchEvent(
-                      new CustomEvent("open-delete-secret-modal", {
-                        detail: { secretName: secret.name },
-                      })
-                    )
+                    setDeleteModal({
+                      open: true,
+                      secretName: secret.name,
+                    })
                   }
                   className="px-3 py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors"
                 >
@@ -259,6 +264,20 @@ export default function RepoSecretsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Delete secret confirmation modal */}
+      {deleteModal.open && (
+        <DeleteSecretModal
+          secretName={deleteModal.secretName}
+          repo={repo}
+          onClose={() => setDeleteModal({ open: false, secretName: "" })}
+          onSuccess={() => {
+            setDeleteModal({ open: false, secretName: "" });
+            showToast("Secret deleted successfully", "success");
+            fetchSecrets();
+          }}
+        />
       )}
 
       {/* Secret create/update modal */}
