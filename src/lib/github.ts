@@ -199,6 +199,76 @@ export async function addCollaborator(
   };
 }
 
+// ── Pending Invitations ─────────────────────────────────────────────
+
+export interface PendingInvitation {
+  id: number;
+  username: string;
+  avatarUrl: string;
+  createdAt: string;
+}
+
+/**
+ * Fetch all pending (unaccepted) collaborator invitations for a repo.
+ * Handles pagination automatically.
+ */
+export async function fetchPendingInvitations(
+  owner: string,
+  repo: string
+): Promise<PendingInvitation[]> {
+  const invitations: PendingInvitation[] = [];
+  let page = 1;
+
+  try {
+    while (true) {
+      const { data } = await octokit.rest.repos.listInvitations({
+        owner,
+        repo,
+        per_page: 100,
+        page,
+      });
+
+      if (data.length === 0) break;
+
+      for (const inv of data) {
+        if (!inv.invitee) continue;
+        invitations.push({
+          id: inv.id,
+          username: inv.invitee.login,
+          avatarUrl: inv.invitee.avatar_url,
+          createdAt: inv.created_at,
+        });
+      }
+
+      if (data.length < 100) break;
+      page++;
+    }
+  } catch (error: unknown) {
+    if (error instanceof Error && "status" in error && (error as { status: number }).status === 403) {
+      console.warn(`Skipping ${owner}/${repo} — no permission to list invitations`);
+      return [];
+    }
+    throw error;
+  }
+
+  return invitations;
+}
+
+/**
+ * Revoke (delete) a pending collaborator invitation.
+ */
+export async function revokeInvitation(
+  owner: string,
+  repo: string,
+  invitationId: number
+): Promise<void> {
+  await octokit.rest.repos.deleteInvitation({
+    owner,
+    repo,
+    invitation_id: invitationId,
+  });
+}
+
 // ── Repository Secrets ──────────────────────────────────────────────
 
 export interface RepoSecret {

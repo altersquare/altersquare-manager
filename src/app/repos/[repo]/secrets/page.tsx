@@ -6,11 +6,19 @@ import { useParams } from "next/navigation";
 import { useToast } from "@/components/Toast";
 import { SecretModal } from "@/components/SecretModal";
 import { DeleteSecretModal } from "@/components/DeleteSecretModal";
+import { RevokeInviteModal } from "@/components/RevokeInviteModal";
 
 interface Secret {
   name: string;
   created_at: string;
   updated_at: string;
+}
+
+interface PendingInvitation {
+  id: number;
+  username: string;
+  avatarUrl: string;
+  createdAt: string;
 }
 
 export default function RepoSecretsPage() {
@@ -32,6 +40,14 @@ export default function RepoSecretsPage() {
     open: boolean;
     secretName: string;
   }>({ open: false, secretName: "" });
+
+  const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
+  const [invitationsLoading, setInvitationsLoading] = useState(true);
+  const [revokeModal, setRevokeModal] = useState<{
+    open: boolean;
+    username: string;
+    invitationId: number;
+  }>({ open: false, username: "", invitationId: 0 });
 
   const fetchSecrets = async () => {
     setLoading(true);
@@ -55,8 +71,28 @@ export default function RepoSecretsPage() {
     }
   };
 
+  const fetchInvitations = async () => {
+    setInvitationsLoading(true);
+    try {
+      const res = await fetch(
+        `/api/repos/invitations?repo=${encodeURIComponent(repo)}`
+      );
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to fetch invitations");
+      }
+      const data = await res.json();
+      setInvitations(data.invitations);
+    } catch (err) {
+      console.error("Failed to load invitations:", err);
+    } finally {
+      setInvitationsLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchSecrets();
+    fetchInvitations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repo]);
 
@@ -123,6 +159,77 @@ export default function RepoSecretsPage() {
           </button>
         </div>
       </div>
+
+      {/* Pending Invitations */}
+      {invitationsLoading && (
+        <div className="mb-8 animate-pulse space-y-3">
+          <div className="h-5 w-44 bg-gray-700 rounded mb-3" />
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div
+              key={i}
+              className="bg-gray-800/50 rounded-xl p-3 flex items-center gap-3"
+            >
+              <div className="w-8 h-8 bg-gray-700 rounded-full" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-3.5 w-28 bg-gray-700 rounded" />
+                <div className="h-3 w-20 bg-gray-700/60 rounded" />
+              </div>
+              <div className="h-7 w-16 bg-gray-700 rounded-lg" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!invitationsLoading && invitations.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+              Pending Invitations
+            </h2>
+            <span className="px-2 py-0.5 text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20 rounded-full">
+              {invitations.length}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {invitations.map((inv, idx) => (
+              <div
+                key={inv.id}
+                className="bg-gray-800/50 border border-gray-800 rounded-xl p-3 flex items-center gap-3 hover:bg-gray-800/80 transition-colors animate-fade-in-up"
+                style={{ animationDelay: `${idx * 20}ms` }}
+              >
+                {/* Avatar */}
+                <img
+                  src={inv.avatarUrl}
+                  alt={inv.username}
+                  className="w-8 h-8 rounded-full border border-gray-700"
+                />
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">{inv.username}</p>
+                  <p className="text-gray-500 text-xs mt-0.5">
+                    Sent {formatDate(inv.createdAt)}
+                  </p>
+                </div>
+
+                {/* Revoke */}
+                <button
+                  onClick={() =>
+                    setRevokeModal({
+                      open: true,
+                      username: inv.username,
+                      invitationId: inv.id,
+                    })
+                  }
+                  className="px-3 py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors"
+                >
+                  Revoke
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Loading skeleton */}
       {loading && (
@@ -264,6 +371,21 @@ export default function RepoSecretsPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Revoke invitation confirmation modal */}
+      {revokeModal.open && (
+        <RevokeInviteModal
+          username={revokeModal.username}
+          repo={repo}
+          invitationId={revokeModal.invitationId}
+          onClose={() => setRevokeModal({ open: false, username: "", invitationId: 0 })}
+          onSuccess={() => {
+            setRevokeModal({ open: false, username: "", invitationId: 0 });
+            showToast("Invitation revoked", "success");
+            fetchInvitations();
+          }}
+        />
       )}
 
       {/* Delete secret confirmation modal */}
