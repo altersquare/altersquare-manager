@@ -29,8 +29,8 @@ RUN adduser --system --uid 1001 nextjs
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copy the data directory for cache.json
-COPY --from=builder --chown=nextjs:nodejs /app/data ./data
+# Create the data directory for cache.json (runtime-generated, not in repo)
+RUN mkdir -p ./data && chown nextjs:nodejs ./data
 
 USER nextjs
 
