@@ -26,3 +26,4 @@ next-env.d.ts
 /data/
 
 *.env*
+!sample.env
