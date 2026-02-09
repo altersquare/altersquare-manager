@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import { useToast } from "@/components/Toast";
 import { TeamSkeleton } from "@/components/TeamSkeleton";
 import { RemoveModal, RepoProgress } from "@/components/RemoveModal";
@@ -22,6 +23,8 @@ interface TeamData {
 }
 
 export default function Home() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "admin";
   const [data, setData] = useState<TeamData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -343,7 +346,13 @@ export default function Home() {
         <div className="flex items-center gap-3">
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors"
+          disabled={!isAdmin}
+          title={!isAdmin ? "Admin only" : undefined}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            isAdmin
+              ? "bg-blue-600 hover:bg-blue-500"
+              : "bg-blue-600/40 cursor-not-allowed opacity-50"
+          }`}
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -622,7 +631,13 @@ export default function Home() {
                 </span>
                 <button
                   onClick={() => setRemovingMember(member)}
-                  className="px-3 py-1.5 rounded-lg bg-red-600/10 text-red-400 hover:bg-red-600/20 hover:text-red-300 text-xs font-medium transition-colors border border-red-600/20"
+                  disabled={!isAdmin}
+                  title={!isAdmin ? "Admin only" : undefined}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+                    isAdmin
+                      ? "bg-red-600/10 text-red-400 hover:bg-red-600/20 hover:text-red-300 border-red-600/20"
+                      : "bg-red-600/5 text-red-400/40 border-red-600/10 cursor-not-allowed opacity-50"
+                  }`}
                 >
                   Remove
                 </button>

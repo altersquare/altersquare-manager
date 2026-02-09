@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteRepoSecret } from "@/lib/github";
+import { requireAdmin } from "@/lib/session";
 
 /**
  * Delete a repository secret.
  * Body: { repo: string, name: string }
  */
 export async function POST(request: NextRequest) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
   try {
     const { repo, name } = (await request.json()) as {
       repo: string;

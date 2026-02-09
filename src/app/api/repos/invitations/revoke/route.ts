@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revokeInvitation } from "@/lib/github";
+import { requireAdmin } from "@/lib/session";
 
 const OWNER = process.env.GITHUB_USERNAME || "altersquare";
 
@@ -8,6 +9,9 @@ const OWNER = process.env.GITHUB_USERNAME || "altersquare";
  * Body: { repo: string, invitationId: number }
  */
 export async function POST(request: NextRequest) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
   try {
     const { repo, invitationId } = (await request.json()) as {
       repo: string;

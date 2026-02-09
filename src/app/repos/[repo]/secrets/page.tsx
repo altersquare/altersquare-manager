@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useToast } from "@/components/Toast";
@@ -22,6 +23,8 @@ interface PendingInvitation {
 }
 
 export default function RepoSecretsPage() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "admin";
   const params = useParams<{ repo: string }>();
   const repo = decodeURIComponent(params.repo);
   const { showToast } = useToast();
@@ -221,7 +224,13 @@ export default function RepoSecretsPage() {
                       invitationId: inv.id,
                     })
                   }
-                  className="px-3 py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors"
+                  disabled={!isAdmin}
+                  title={!isAdmin ? "Admin only" : undefined}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border ${
+                    isAdmin
+                      ? "text-red-400 bg-red-500/10 hover:bg-red-500/20 border-red-500/20"
+                      : "text-red-400/40 bg-red-500/5 border-red-500/10 cursor-not-allowed opacity-50"
+                  }`}
                 >
                   Revoke
                 </button>
@@ -363,7 +372,13 @@ export default function RepoSecretsPage() {
                       secretName: secret.name,
                     })
                   }
-                  className="px-3 py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors"
+                  disabled={!isAdmin}
+                  title={!isAdmin ? "Admin only" : undefined}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border ${
+                    isAdmin
+                      ? "text-red-400 bg-red-500/10 hover:bg-red-500/20 border-red-500/20"
+                      : "text-red-400/40 bg-red-500/5 border-red-500/10 cursor-not-allowed opacity-50"
+                  }`}
                 >
                   Delete
                 </button>

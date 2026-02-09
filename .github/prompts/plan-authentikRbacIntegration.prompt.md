@@ -1,52 +1,69 @@
 # Authentik RBAC Integration — Milestone Plan
 
-## Milestone 1: Authentik Setup & OIDC Provider Configuration
+> Authentik version: **2025.2.3**
+
+## Milestone 1: Authentik Setup & OIDC Provider Configuration ✅
 
 **Goal:** Configure Authentik so it can issue tokens with a `role` claim to this app.
 
 ### Steps
 
 1. **Create Groups** in Authentik admin (`https://auth.coolify.orderstack.dev/`)
-   - Directory → Groups → Create → `manager-admin` → Save
-   - Directory → Groups → Create → `manager-member` → Save
-   - Assign your admin user(s) to `manager-admin`
-   - Assign your limited user(s) to `manager-member`
+   - Directory → Groups → Create → `altersquare-github-manager` → Save
+   - Directory → Groups → Create → `altersquare-github-member` → Save
+   - Assign your admin user(s) to `altersquare-github-manager`
+   - Assign your limited user(s) to `altersquare-github-member`
 
 2. **Create Role Scope Mapping**
-   - Customization → Property Mappings → Create → Scope Mapping
+   - Customization → Property Mappings → click **Create**
+   - In the type dialog, select **OAuth2/OpenID Scope Mapping** → Next
    - Name: `role`
    - Scope name: `role`
    - Description: `Maps Authentik groups to app roles`
    - Expression:
      ```python
-     if request.user.ak_groups.filter(name="manager-admin").exists():
+     if request.user.ak_groups.filter(name="altersquare-github-manager").exists():
          return {"role": "admin"}
      return {"role": "member"}
      ```
    - Save
 
-3. **Create OAuth2/OpenID Provider**
-   - Applications → Providers → Create → OAuth2/OpenID Provider
-   - Name: `altersquare-manager`
-   - Authorization flow: `default-provider-authorization-implicit-consent`
-   - Client type: `Confidential`
-   - **Copy the Client ID and Client Secret** — you'll need these in Milestone 2
-   - Redirect URIs/Origins (one per line):
-     ```
-     https://altersquaregithub.coolify.orderstack.dev/api/auth/callback/authentik
-     http://localhost:3000/api/auth/callback/authentik
-     ```
-   - Advanced protocol settings:
-     - Scopes: select `openid`, `email`, `profile`, and the `role` mapping from step 2
+3. **Create Application + OAuth2/OpenID Provider** (combined flow)
+   - Applications → Applications → click **Create with Provider**
+   - **Application settings:**
+     - Name: `AlterSquare Manager`
+     - Slug: `altersquare-manager`
+     - Launch URL: `https://altersquaregithub.coolify.orderstack.dev`
+     - Click **Next**
+   - **Provider type:** select **OAuth2/OIDC** → click **Next**
+   - **Provider settings:**
+     - Name: `altersquare-manager`
+     - Authorization flow: `default-provider-authorization-implicit-consent`
+     - Client type: `Confidential`
+     - **Copy the Client ID and Client Secret** — you'll need these in Milestone 2
+     - Redirect URIs/Origins (one per line):
+       ```
+       https://altersquaregithub.coolify.orderstack.dev/api/auth/callback/authentik
+       http://localhost:3000/api/auth/callback/authentik
+       ```
+     - Scope mapping: select `openid`, `email`, `profile` (the custom `role` mapping won't appear here yet — we'll add it next)
      - Include claims in id_token: **checked** ✓
-   - Save
+   - Click **Submit**
 
-4. **Create Application**
-   - Applications → Applications → Create
-   - Name: `AlterSquare Manager`
-   - Slug: `altersquare-manager`
-   - Provider: `altersquare-manager`
-   - Launch URL: `https://altersquaregithub.coolify.orderstack.dev`
+   > This creates both the Application and Provider in one step.
+
+4. **Add the `role` scope mapping to the provider**
+
+   The "Create with Provider" wizard uses a simplified form that doesn't show custom scope mappings. Use the **legacy provider edit form** instead:
+
+   - Applications → Providers → click `altersquare-manager` to open its detail/overview page
+   - Click **Edit** (top-right)
+   - If you see a full form with many fields, scroll down and look for **Scope mapping** (may be under an "Advanced protocol settings" expandable section)
+   - If the edit form is still simplified (no scope mapping field visible), try this alternative:
+     1. Go to Applications → Providers
+     2. Click the **pencil/edit icon** next to `altersquare-manager` (not the name itself)
+     3. This should open the **legacy full edit form** with all protocol settings
+   - In the **Scope mapping** multi-select, search for and add `role` alongside the existing `openid`, `email`, `profile`
    - Save
 
 ### Test
@@ -57,7 +74,7 @@
 
 ---
 
-## Milestone 2: Install NextAuth & Auth Config (Login/Logout Works)
+## Milestone 2: Install NextAuth & Auth Config (Login/Logout Works) ✅
 
 **Goal:** App redirects to Authentik for login, creates a session, and supports logout. No RBAC yet — just authentication.
 
@@ -73,7 +90,7 @@
 3. Create `src/lib/auth.ts` — NextAuth config with custom Authentik OIDC provider
 4. Create `src/types/next-auth.d.ts` — type augmentation for `role` on session/JWT
 5. Create `src/app/api/auth/[...nextauth]/route.ts` — NextAuth route handler
-6. Create `src/middleware.ts` — protect all routes, redirect unauthenticated to login
+6. Edit `src/proxy.ts` — protect all page routes, redirect unauthenticated to login
 7. Edit `src/app/layout.tsx` — wrap app in `SessionProvider`
 8. Edit `src/components/Navbar.tsx` — show logged-in user name/email + logout button
 
@@ -84,7 +101,7 @@
 | Create | `src/lib/auth.ts` |
 | Create | `src/types/next-auth.d.ts` |
 | Create | `src/app/api/auth/[...nextauth]/route.ts` |
-| Create | `src/middleware.ts` |
+| Edit   | `src/proxy.ts` |
 | Edit   | `.env` |
 | Edit   | `package.json` (via npm install) |
 | Edit   | `src/app/layout.tsx` |
@@ -101,7 +118,7 @@
 
 ---
 
-## Milestone 3: Role Extraction & Exposure (Role Appears in Session)
+## Milestone 3: Role Extraction & Exposure (Role Appears in Session) ✅
 
 **Goal:** The `role` claim from Authentik is extracted from the OIDC token and available in both server-side and client-side session.
 
@@ -119,10 +136,10 @@
 
 ### Test
 
-1. Log in as a user in the `manager-admin` group
+1. Log in as a user in the `altersquare-github-manager` group
 2. Open browser console → run: `fetch('/api/auth/session').then(r=>r.json()).then(console.log)`
 3. Confirm the response includes `user.role: "admin"`
-4. Log out, log in as a user in the `manager-member` group
+4. Log out, log in as a user in the `altersquare-github-member` group
 5. Repeat step 2 — confirm `user.role: "member"`
 6. If role is missing or always the same, check:
    - The scope mapping expression in Authentik
@@ -131,7 +148,7 @@
 
 ---
 
-## Milestone 4: API Route Protection (Server-Side RBAC)
+## Milestone 4: API Route Protection (Server-Side RBAC) ✅
 
 **Goal:** Admin-only API routes return 403 for `member` users. This is the real security layer.
 
@@ -141,6 +158,7 @@
 2. Edit `src/app/api/team/remove-one/route.ts` — add `requireAdmin()` check at top
 3. Edit `src/app/api/team/add/route.ts` — add `requireAdmin()` check at top
 4. Edit `src/app/api/secrets/delete/route.ts` — add `requireAdmin()` check at top
+5. Edit `src/app/api/repos/invitations/revoke/route.ts` — add `requireAdmin()` check at top
 
 ### Files
 
@@ -150,6 +168,7 @@
 | Edit   | `src/app/api/team/remove-one/route.ts` |
 | Edit   | `src/app/api/team/add/route.ts` |
 | Edit   | `src/app/api/secrets/delete/route.ts` |
+| Edit   | `src/app/api/repos/invitations/revoke/route.ts` |
 
 ### Test
 
@@ -159,12 +178,12 @@
    fetch('/api/team/remove-one', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username:'test',repo:'test'})}).then(r=>r.json()).then(console.log)
    ```
 3. Confirm response: `{"error": "Admin access required"}` with status 403
-4. Repeat for `/api/team/add`, `/api/team/remove`, `/api/secrets/delete`
+4. Repeat for `/api/team/add`, `/api/team/remove`, `/api/secrets/delete`, `/api/repos/invitations/revoke`
 5. Log in as `admin` user → same requests should NOT return 403 (they may return other errors like 404 for nonexistent repos, which is fine — the point is they don't return 403)
 
 ---
 
-## Milestone 5: UI Gating (Grey Out Restricted Buttons)
+## Milestone 5: UI Gating (Grey Out Restricted Buttons) ✅
 
 **Goal:** `member` users see restricted buttons as greyed out with an "Admin only" tooltip. `admin` users see everything as normal.
 
@@ -177,6 +196,7 @@
 2. Edit `src/app/repos/[repo]/secrets/page.tsx` (Secrets page):
    - Use `useSession()` to get `role`
    - "Delete" button per secret: if `member`, render disabled + `title="Admin only"` + reduced opacity
+   - "Revoke" button per pending invitation: if `member`, render disabled + `title="Admin only"` + reduced opacity
 3. Ensure 403 API responses display as toast errors (existing toast system should handle this)
 
 ### Files
@@ -194,6 +214,7 @@
    - Team page: Remove buttons are greyed out, hover shows "Admin only" tooltip, clicking does nothing
    - Add Collaborator button: same — greyed out with tooltip
    - Secrets page: Delete buttons are greyed out with tooltip
+   - Secrets page: Revoke invite buttons are greyed out with tooltip
    - Create/update secrets: works normally
    - Refresh team cache: works normally
 4. As `member`, even if you manually trigger the API (DevTools), you get 403 (already verified in Milestone 4)
@@ -222,3 +243,4 @@
 | Add collaborator         | ✅      | ❌       |
 | Remove collaborator      | ✅      | ❌       |
 | Delete secret            | ✅      | ❌       |
+| Revoke collaborator invite | ✅    | ❌       |
