@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { fetchAllRepos } from "@/lib/github";
+import { requireGithubUsername } from "@/lib/session";
 
 export async function GET() {
+  const denied = await requireGithubUsername();
+  if (denied) return denied;
+
   try {
     const repos = await fetchAllRepos();
     return NextResponse.json({ repos, count: repos.length });

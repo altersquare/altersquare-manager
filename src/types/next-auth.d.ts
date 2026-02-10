@@ -7,6 +7,7 @@ declare module "next-auth" {
       email?: string | null;
       image?: string | null;
       role: string;
+      githubUsername?: string | null;
     };
   }
 }
@@ -16,5 +17,6 @@ import "next-auth/jwt";
 declare module "next-auth/jwt" {
   interface JWT {
     role?: string;
+    githubUsername?: string | null;
   }
 }

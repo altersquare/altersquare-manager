@@ -51,7 +51,11 @@ export default function Home() {
           setGlobalError("Your GitHub token is invalid or expired. Check your .env file and restart the server.");
           return;
         }
-        if (res.status === 403 || res.status === 429) {
+        if (res.status === 403) {
+          setGlobalError(msg);
+          return;
+        }
+        if (res.status === 429) {
           const retryAfter = res.headers.get("retry-after");
           setGlobalError(
             `GitHub API rate limit exceeded.${retryAfter ? ` Try again in ${retryAfter} seconds.` : " Please wait a few minutes and try again."}`

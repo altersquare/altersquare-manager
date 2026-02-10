@@ -56,6 +56,11 @@ export function Navbar() {
         {/* User info + Logout */}
         {session?.user && (
           <div className="flex items-center gap-3">
+            {session.user.githubUsername && (
+              <span className="text-xs text-gray-500 hidden sm:inline">
+                @{session.user.githubUsername}
+              </span>
+            )}
             <span className="text-sm text-gray-400 hidden sm:inline">
               {session.user.name || session.user.email}
             </span>

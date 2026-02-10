@@ -42,9 +42,12 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 
 ### Authentication & Authorization
 
-- **SSO via Authentik** — OIDC-based authentication using [Authentik](https://goauthentik.io/) as the identity provider through NextAuth v5. Scopes: `openid`, `email`, `profile`, `role`.
+- **SSO via Authentik** — OIDC-based authentication using [Authentik](https://goauthentik.io/) as the identity provider through NextAuth v5. Scopes: `openid`, `email`, `profile`, `role`, `github_username`.
 - **Role-based access control** — A custom Authentik scope mapping evaluates group membership to emit `role: "admin"` or `role: "member"` in the OIDC token. Admin-only actions (remove collaborator, delete secret, revoke invitation) are enforced both server-side (403) and client-side (disabled buttons with "Admin only" tooltips).
-- **Middleware protection** — All page routes require authentication; unauthenticated users are redirected to the sign-in page. API routes handle their own auth via `requireAdmin()` or no restriction.
+- **GitHub username-based repo filtering** — Each member's GitHub username is stored as a custom Authentik attribute and exposed via a `github_username` OIDC scope mapping. Members can only see and manage repos they are a collaborator on. The team page is filtered to show only collaborators who share repos with the member. Admins remain fully unrestricted.
+- **Access blocking for unconfigured members** — Members without a `github_username` attribute in Authentik are blocked from the entire application and shown a "contact your administrator" page with a sign-out button.
+- **Defense-in-depth enforcement** — Access controls are enforced at both the middleware level (page route redirects) and the API level (per-route guards). Case-insensitive GitHub username matching ensures compatibility with GitHub's username handling.
+- **Middleware protection** — All page routes require authentication; unauthenticated users are redirected to the sign-in page. Members without a GitHub username are redirected to `/no-access`. API routes handle their own auth via `requireAdmin()`, `requireGithubUsername()`, or `requireMemberRepoAccess()`.
 
 ### Performance & Caching
 
@@ -125,8 +128,13 @@ The app expects two Authentik groups and a custom scope mapping:
        return {"role": "admin"}
    return {"role": "member"}
    ```
-3. **Application + Provider** — Create an OAuth2/OIDC application with `Confidential` client type, the `role` scope mapping attached alongside `openid`, `email`, `profile`, and "Include claims in id_token" enabled.
-4. **Redirect URIs**:
+3. **GitHub Username Scope Mapping** — Create an OAuth2/OpenID scope mapping named `github_username` with this expression:
+   ```python
+   return {"github_username": request.user.attributes.get("github_username", "")}
+   ```
+4. **Per-User GitHub Username** — For each member user, add a custom attribute: **User → Edit → Attributes** → add `github_username: "their-gh-login"`. Members without this attribute will be blocked from the app.
+5. **Application + Provider** — Create an OAuth2/OIDC application with `Confidential` client type, the `role` and `github_username` scope mappings attached alongside `openid`, `email`, `profile`, and "Include claims in id_token" enabled.
+6. **Redirect URIs**:
    ```
    https://your-domain.com/api/auth/callback/authentik
    http://localhost:3000/api/auth/callback/authentik
@@ -139,6 +147,10 @@ The app expects two Authentik groups and a custom scope mapping:
 | Decision | Rationale |
 | -------- | --------- |
 | JSON file cache, no database | Simple local tool — no external dependencies needed |
+| GitHub username stored in Authentik, not fetched at runtime | No extra API calls or env vars; cached in the OIDC token |
+| Cache-based collaborator validation | Avoids GitHub API rate limits; freshness governed by existing refresh mechanism |
+| Case-insensitive username matching | GitHub usernames are case-insensitive |
+| Members without `github_username` blocked entirely | Prevents partial/broken experience; clear admin action required |
 | Default `push` permission for collaborators | Keeps the add-collaborator UX simple |
 | Owner excluded from team list | Prevents accidental self-removal |
 | Repository secrets, not environment secrets | Per user requirement |
@@ -157,6 +169,8 @@ The app expects two Authentik groups and a custom scope mapping:
 src/
 ├── app/
 │   ├── page.tsx                      # Team dashboard
+│   ├── no-access/
+│   │   └── page.tsx                  # Blocked member landing page
 │   ├── repos/
 │   │   ├── page.tsx                  # Repository browser
 │   │   └── [repo]/secrets/page.tsx   # Per-repo secrets & invitations
@@ -172,7 +186,7 @@ src/
 │   ├── auth.ts                       # NextAuth config (Authentik OIDC)
 │   ├── cache.ts                      # File-based cache read/write
 │   ├── github.ts                     # Octokit helpers (fetchTeam, etc.)
-│   └── session.ts                    # Session helpers & admin guard
+│   └── session.ts                    # Session helpers, admin guard & repo access validation
 ├── proxy.ts                          # Auth middleware for page routes
 └── types/
     └── next-auth.d.ts                # Extended NextAuth type definitions
@@ -186,15 +200,15 @@ data/
 
 | Endpoint                          | Method | Auth    | Description                              |
 | --------------------------------- | ------ | ------- | ---------------------------------------- |
-| `/api/team`                       | GET    | User    | Get team data (from cache or live)       |
-| `/api/team/refresh`               | POST   | User    | Force refresh team data from GitHub      |
+| `/api/team`                       | GET    | Member+ | Get team data (filtered for members)     |
+| `/api/team/refresh`               | POST   | Member+ | Force refresh team data from GitHub      |
 | `/api/team/add`                   | POST   | Admin   | Add collaborator to a repo               |
 | `/api/team/remove`                | POST   | Admin   | Remove collaborator from all their repos |
 | `/api/team/remove-one`            | POST   | Admin   | Remove collaborator from a single repo   |
-| `/api/repos`                      | GET    | User    | List all repositories                    |
-| `/api/repos/details`              | GET    | User    | Repos with collaborator counts           |
-| `/api/repos/invitations`          | GET    | User    | Pending invitations for a repo           |
+| `/api/repos`                      | GET    | Member+ | List all repositories                    |
+| `/api/repos/details`              | GET    | Member+ | Repos with collaborator counts (filtered for members) |
+| `/api/repos/invitations`          | GET    | Member+ | Pending invitations for a repo (repo access required) |
 | `/api/repos/invitations/revoke`   | POST   | Admin   | Revoke a pending invitation              |
-| `/api/secrets`                    | GET    | User    | List secrets for a repo                  |
-| `/api/secrets/create`             | POST   | User    | Create or update a secret                |
+| `/api/secrets`                    | GET    | Member+ | List secrets for a repo (repo access required) |
+| `/api/secrets/create`             | POST   | Member+ | Create or update a secret (repo access required) |
 | `/api/secrets/delete`             | POST   | Admin   | Delete a secret                          |

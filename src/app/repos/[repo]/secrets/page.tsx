@@ -32,6 +32,7 @@ export default function RepoSecretsPage() {
   const [secrets, setSecrets] = useState<Secret[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   const [secretModal, setSecretModal] = useState<{
     open: boolean;
@@ -55,12 +56,20 @@ export default function RepoSecretsPage() {
   const fetchSecrets = async () => {
     setLoading(true);
     setError(null);
+    setAccessDenied(false);
     try {
       const res = await fetch(
         `/api/secrets?repo=${encodeURIComponent(repo)}`
       );
       if (!res.ok) {
-        const err = await res.json();
+        if (res.status === 403) {
+          const err = await res.json();
+          if (err.error?.includes("not a collaborator")) {
+            setAccessDenied(true);
+            return;
+          }
+        }
+        const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Failed to fetch secrets");
       }
       const data = await res.json();
@@ -139,6 +148,7 @@ export default function RepoSecretsPage() {
               Actions Secrets
             </p>
           </div>
+          {!accessDenied && (
           <button
             onClick={() =>
               setSecretModal({ open: true, mode: "create" })
@@ -160,11 +170,12 @@ export default function RepoSecretsPage() {
             </svg>
             Add Secret
           </button>
+          )}
         </div>
       </div>
 
       {/* Pending Invitations */}
-      {invitationsLoading && (
+      {!accessDenied && invitationsLoading && (
         <div className="mb-8 animate-pulse space-y-3">
           <div className="h-5 w-44 bg-gray-700 rounded mb-3" />
           {Array.from({ length: 2 }).map((_, i) => (
@@ -183,7 +194,7 @@ export default function RepoSecretsPage() {
         </div>
       )}
 
-      {!invitationsLoading && invitations.length > 0 && (
+      {!accessDenied && !invitationsLoading && invitations.length > 0 && (
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-3">
             <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
@@ -240,6 +251,37 @@ export default function RepoSecretsPage() {
         </div>
       )}
 
+      {/* Access denied state */}
+      {!loading && accessDenied && (
+        <div className="text-center py-16">
+          <svg
+            className="w-16 h-16 mx-auto text-yellow-500/50 mb-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+            />
+          </svg>
+          <h2 className="text-xl font-semibold text-gray-300 mb-2">
+            You don&apos;t have access to this repository
+          </h2>
+          <p className="text-gray-500 mb-4">
+            You are not a collaborator on this repository.
+          </p>
+          <Link
+            href="/repos"
+            className="text-sm text-blue-400 hover:text-blue-300 underline"
+          >
+            Back to Repos
+          </Link>
+        </div>
+      )}
+
       {/* Loading skeleton */}
       {loading && (
         <div className="animate-pulse space-y-3">
@@ -260,7 +302,7 @@ export default function RepoSecretsPage() {
       )}
 
       {/* Error state */}
-      {error && !loading && (
+      {error && !loading && !accessDenied && (
         <div className="text-center py-16">
           <svg
             className="w-16 h-16 mx-auto text-red-500/50 mb-4"
@@ -289,7 +331,7 @@ export default function RepoSecretsPage() {
       )}
 
       {/* Empty state */}
-      {!loading && !error && secrets.length === 0 && (
+      {!loading && !error && !accessDenied && secrets.length === 0 && (
         <div className="text-center py-16">
           <svg
             className="w-16 h-16 mx-auto text-gray-600 mb-4"
@@ -314,7 +356,7 @@ export default function RepoSecretsPage() {
       )}
 
       {/* Secrets list */}
-      {!loading && !error && secrets.length > 0 && (
+      {!loading && !error && !accessDenied && secrets.length > 0 && (
         <div className="space-y-3">
           {secrets.map((secret, idx) => (
             <div

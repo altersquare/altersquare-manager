@@ -1,31 +1,51 @@
 import { NextResponse } from "next/server";
 import { fetchTeam } from "@/lib/github";
 import { readCache, writeCache } from "@/lib/cache";
+import { requireGithubUsername, getMemberRepos } from "@/lib/session";
 
 export async function GET() {
+  const denied = await requireGithubUsername();
+  if (denied) return denied;
+
   try {
     // Serve from cache if available
     const cached = await readCache();
+    let team;
+    let repoNames: string[];
+    let cachedAt: string;
+
     if (cached) {
-      return NextResponse.json({
-        team: cached.team,
-        totalMembers: cached.team.length,
-        totalRepos: cached.repos.length,
-        repos: cached.repos.map((r) => r.name),
-        cachedAt: cached.cachedAt,
-      });
+      team = cached.team;
+      repoNames = cached.repos.map((r) => r.name);
+      cachedAt = cached.cachedAt;
+    } else {
+      // No cache — fetch live and save
+      const fetched = await fetchTeam();
+      const cacheData = await writeCache(fetched.team, fetched.repos);
+      team = fetched.team;
+      repoNames = fetched.repos.map((r) => r.name);
+      cachedAt = cacheData.cachedAt;
     }
 
-    // No cache — fetch live and save
-    const { team, repos } = await fetchTeam();
-    const cacheData = await writeCache(team, repos);
+    // Filter for members: only show collaborators on shared repos
+    const memberRepos = await getMemberRepos();
+    if (memberRepos !== null) {
+      const allowed = new Set(memberRepos);
+      repoNames = repoNames.filter((name) => allowed.has(name));
+      team = team
+        .map((member) => ({
+          ...member,
+          repos: member.repos.filter((r) => allowed.has(r)),
+        }))
+        .filter((member) => member.repos.length > 0);
+    }
 
     return NextResponse.json({
       team,
       totalMembers: team.length,
-      totalRepos: repos.length,
-      repos: repos.map((r) => r.name),
-      cachedAt: cacheData.cachedAt,
+      totalRepos: repoNames.length,
+      repos: repoNames,
+      cachedAt,
     });
   } catch (error: unknown) {
     console.error("Failed to fetch team:", error);

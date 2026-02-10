@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchPendingInvitations } from "@/lib/github";
+import { requireMemberRepoAccess } from "@/lib/session";
 
 const OWNER = process.env.GITHUB_USERNAME || "altersquare";
 
@@ -17,6 +18,9 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const denied = await requireMemberRepoAccess(repo);
+    if (denied) return denied;
 
     const invitations = await fetchPendingInvitations(OWNER, repo);
 

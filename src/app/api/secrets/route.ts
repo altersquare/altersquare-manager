@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listRepoSecrets } from "@/lib/github";
+import { requireMemberRepoAccess } from "@/lib/session";
 
 /**
  * List all Actions secrets for a repository.
@@ -15,6 +16,9 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const denied = await requireMemberRepoAccess(repo);
+    if (denied) return denied;
 
     const secrets = await listRepoSecrets(repo);
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 
 interface RepoDetail {
@@ -16,10 +17,13 @@ type SortOption = "name-asc" | "name-desc" | "collabs-desc" | "collabs-asc";
 type VisibilityFilter = "all" | "public" | "private";
 
 export default function ReposPage() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "admin";
   const [repos, setRepos] = useState<RepoDetail[]>([]);
   const [totalRepos, setTotalRepos] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [search, setSearch] = useState("");
   const [visibility, setVisibility] = useState<VisibilityFilter>("all");
   const [sort, setSort] = useState<SortOption>("name-asc");
@@ -29,6 +33,10 @@ export default function ReposPage() {
       try {
         const res = await fetch("/api/repos/details");
         if (!res.ok) {
+          if (res.status === 403) {
+            setAccessDenied(true);
+            return;
+          }
           const err = await res.json();
           throw new Error(err.error || "Failed to fetch repos");
         }
@@ -190,13 +198,30 @@ export default function ReposPage() {
       )}
 
       {/* Empty state (no repos at all) */}
-      {!loading && !error && repos.length === 0 && (
+      {!loading && !error && !accessDenied && repos.length === 0 && (
         <div className="text-center py-16">
           <svg className="w-16 h-16 mx-auto text-gray-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
           </svg>
-          <h2 className="text-xl font-semibold text-gray-300 mb-2">No repositories found</h2>
-          <p className="text-gray-500">No repos were found for this account.</p>
+          <h2 className="text-xl font-semibold text-gray-300 mb-2">
+            {isAdmin ? "No repositories found" : "No repositories available"}
+          </h2>
+          <p className="text-gray-500">
+            {isAdmin
+              ? "No repos were found for this account."
+              : "You are not a collaborator on any repositories."}
+          </p>
+        </div>
+      )}
+
+      {/* Access denied state */}
+      {!loading && accessDenied && (
+        <div className="text-center py-16">
+          <svg className="w-16 h-16 mx-auto text-yellow-500/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+          </svg>
+          <h2 className="text-xl font-semibold text-gray-300 mb-2">Access Denied</h2>
+          <p className="text-gray-500">You do not have permission to view repositories. Contact your administrator.</p>
         </div>
       )}
 

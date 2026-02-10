@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { fetchTeam } from "@/lib/github";
 import { clearCache, writeCache } from "@/lib/cache";
+import { requireGithubUsername } from "@/lib/session";
 
 export async function POST() {
+  const denied = await requireGithubUsername();
+  if (denied) return denied;
+
   try {
     // Clear existing cache
     await clearCache();

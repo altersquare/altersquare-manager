@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createOrUpdateRepoSecret } from "@/lib/github";
+import { requireMemberRepoAccess } from "@/lib/session";
 
 /**
  * Create or update a repository secret.
@@ -19,6 +20,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const denied = await requireMemberRepoAccess(repo);
+    if (denied) return denied;
     if (!name || typeof name !== "string") {
       return NextResponse.json(
         { error: "name is required" },

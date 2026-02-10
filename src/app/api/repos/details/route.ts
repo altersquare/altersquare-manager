@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { readCache, writeCache } from "@/lib/cache";
 import { fetchTeam } from "@/lib/github";
+import { requireGithubUsername, getMemberRepos } from "@/lib/session";
 
 export async function GET() {
+  const denied = await requireGithubUsername();
+  if (denied) return denied;
+
   try {
     let cached = await readCache();
 
@@ -20,7 +24,7 @@ export async function GET() {
       }
     }
 
-    const repos = cached.repos
+    let repos = cached.repos
       .map((r) => ({
         name: r.name,
         fullName: r.fullName,
@@ -30,6 +34,13 @@ export async function GET() {
         collaboratorCount: collabCounts.get(r.name) || 0,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
+
+    // Filter repos for members based on their collaborator access
+    const memberRepos = await getMemberRepos();
+    if (memberRepos !== null) {
+      const allowed = new Set(memberRepos);
+      repos = repos.filter((r) => allowed.has(r.name));
+    }
 
     return NextResponse.json({ repos, totalRepos: repos.length });
   } catch (error: unknown) {
