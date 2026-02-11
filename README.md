@@ -18,7 +18,7 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 - **Remove collaborators** — Remove a user from all or selected repositories with granular control. The removal modal pre-selects all repos, lets you deselect individual ones, and shows per-repo progress with status icons.
 - **Search & filter** — Two side-by-side text inputs for filtering by username and by repo name (partial matching). Both compose with AND logic.
 - **Collapsible repo badges** — Members with many repos show the first 8 badges with a "+N more" button; click to expand all, click "Show less" to collapse. Independent per member.
-- **Stats bar** — Displays total member count, total repo count, and last cache sync time.
+- **Stats bar** — Displays total member count and total repo count.
 - **Owner excluded** — The `altersquare` owner account is automatically excluded from the team list to prevent accidental self-removal.
 
 ### Repository Browser
@@ -74,9 +74,11 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 ### Performance & Caching
 
 - **File-based cache** — Team and repo data is cached to `data/cache.json` on disk to minimize GitHub API calls.
-- **On-demand refresh** — A manual refresh button clears the cache and fetches fresh data from GitHub.
+- **Global sync button** — A sync button in the navbar (accessible on all pages) clears the cache and fetches fresh data from GitHub. A tooltip explains what gets synced. Both the Team and Repos pages auto re-fetch after sync completes.
+- **Last synced timestamp** — Displayed in the navbar as an absolute timestamp (e.g. "Synced: 2/11/2026, 3:45 PM").
 - **In-place cache updates** — Mutations (e.g., removing a collaborator) update the cache directly to avoid full refetches.
 - **Parallel data fetching** — Collaborators for all repos are fetched in parallel via `Promise.allSettled`, with graceful handling of 403 errors on restricted repos (e.g., forks).
+- **App version in navbar** — The package.json version is displayed in the navbar title so you can tell when the UI has been updated.
 
 ---
 
@@ -208,7 +210,8 @@ src/
 │       │   ├── secrets/              # List, create, delete env secrets
 │       │   └── variables/            # List, create, update, delete env variables
 │       └── team/                     # Team CRUD & cache refresh
-├── components/                       # Modals, navbar, toast, skeletons
+│           └── status/               # Lightweight cache timestamp endpoint
+├── components/                       # Modals, navbar, toast, sync context, skeletons
 ├── lib/
 │   ├── auth.ts                       # NextAuth config (Authentik OIDC)
 │   ├── cache.ts                      # File-based cache read/write
@@ -229,6 +232,7 @@ data/
 | ------------------------------------------------- | ------ | ------- | -------------------------------------------- |
 | `/api/team`                                        | GET    | Member+ | Get team data (filtered for members)         |
 | `/api/team/refresh`                                | POST   | Member+ | Force refresh team data from GitHub          |
+| `/api/team/status`                                 | GET    | Member+ | Get cache timestamp (lightweight)            |
 | `/api/team/add`                                    | POST   | Admin   | Add collaborator to a repo                   |
 | `/api/team/remove`                                 | POST   | Admin   | Remove collaborator from all their repos     |
 | `/api/team/remove-one`                             | POST   | Admin   | Remove collaborator from a single repo       |

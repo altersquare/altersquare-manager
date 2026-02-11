@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
+import { useSync } from "@/components/SyncContext";
 import Link from "next/link";
 
 interface RepoDetail {
@@ -27,29 +28,39 @@ export default function ReposPage() {
   const [search, setSearch] = useState("");
   const [visibility, setVisibility] = useState<VisibilityFilter>("all");
   const [sort, setSort] = useState<SortOption>("name-asc");
+  const { registerSyncCallback, unregisterSyncCallback } = useSync();
+
+  const fetchRepos = useCallback(async () => {
+    try {
+      const res = await fetch("/api/repos/details");
+      if (!res.ok) {
+        if (res.status === 403) {
+          setAccessDenied(true);
+          return;
+        }
+        const err = await res.json();
+        throw new Error(err.error || "Failed to fetch repos");
+      }
+      const data = await res.json();
+      setRepos(data.repos);
+      setTotalRepos(data.totalRepos);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load repos");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch("/api/repos/details");
-        if (!res.ok) {
-          if (res.status === 403) {
-            setAccessDenied(true);
-            return;
-          }
-          const err = await res.json();
-          throw new Error(err.error || "Failed to fetch repos");
-        }
-        const data = await res.json();
-        setRepos(data.repos);
-        setTotalRepos(data.totalRepos);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load repos");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+    fetchRepos();
+  }, [fetchRepos]);
+
+  // Re-fetch repos when sync completes from navbar
+  useEffect(() => {
+    const cb = () => { fetchRepos(); };
+    registerSyncCallback(cb);
+    return () => unregisterSyncCallback(cb);
+  }, [registerSyncCallback, unregisterSyncCallback, fetchRepos]);
 
   // Filter & sort
   const filtered = repos

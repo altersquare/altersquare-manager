@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useToast } from "@/components/Toast";
+import { useSync } from "@/components/SyncContext";
 import { TeamSkeleton } from "@/components/TeamSkeleton";
 import { RemoveModal, RepoProgress } from "@/components/RemoveModal";
 import { AddModal, RepoAddProgress } from "@/components/AddModal";
@@ -27,7 +28,6 @@ export default function Home() {
   const isAdmin = session?.user?.role === "admin";
   const [data, setData] = useState<TeamData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [removingMember, setRemovingMember] = useState<TeamMember | null>(null);
   const [removeLoading, setRemoveLoading] = useState(false);
   const [removeProgress, setRemoveProgress] = useState<RepoProgress[] | null>(null);
@@ -39,6 +39,7 @@ export default function Home() {
   const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set());
   const [globalError, setGlobalError] = useState<string | null>(null);
   const { showToast } = useToast();
+  const { registerSyncCallback, unregisterSyncCallback } = useSync();
 
   const fetchTeam = useCallback(async () => {
     try {
@@ -78,39 +79,12 @@ export default function Home() {
     }
   }, [showToast, globalError]);
 
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    setGlobalError(null);
-    try {
-      const res = await fetch("/api/team/refresh", { method: "POST" });
-      if (!res.ok) {
-        const err = await res.json();
-        const msg = err.error || "Failed to refresh";
-        if (res.status === 401) {
-          setGlobalError("Your GitHub token is invalid or expired. Check your .env file and restart the server.");
-          return;
-        }
-        if (res.status === 403 || res.status === 429) {
-          const retryAfter = res.headers.get("retry-after");
-          setGlobalError(
-            `GitHub API rate limit exceeded.${retryAfter ? ` Try again in ${retryAfter} seconds.` : " Please wait a few minutes and try again."}`
-          );
-          return;
-        }
-        throw new Error(msg);
-      }
-      const json: TeamData = await res.json();
-      setData(json);
-      showToast("Team data refreshed from GitHub", "success");
-    } catch (err) {
-      showToast(
-        err instanceof Error ? err.message : "Failed to refresh team data",
-        "error"
-      );
-    } finally {
-      setRefreshing(false);
-    }
-  }, [showToast]);
+  // Re-fetch team data when sync completes from navbar
+  useEffect(() => {
+    const cb = () => { fetchTeam(); };
+    registerSyncCallback(cb);
+    return () => unregisterSyncCallback(cb);
+  }, [registerSyncCallback, unregisterSyncCallback, fetchTeam]);
 
   const handleRemove = useCallback(
     async (member: TeamMember, selectedRepos: string[]) => {
@@ -363,26 +337,6 @@ export default function Home() {
           </svg>
           Add Collaborator
         </button>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <svg
-            className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-          {refreshing ? "Refreshing..." : "Refresh"}
-        </button>
         </div>
       </div>
 
@@ -406,7 +360,7 @@ export default function Home() {
 
       {/* Stats Bar */}
       {data && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-2 gap-4 mb-8">
           <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-800">
             <p className="text-2xl font-bold">{data.totalMembers}</p>
             <p className="text-gray-400 text-sm">Team Members</p>
@@ -415,14 +369,6 @@ export default function Home() {
             <p className="text-2xl font-bold">{data.totalRepos}</p>
             <p className="text-gray-400 text-sm">Repositories</p>
           </div>
-          {data.cachedAt && (
-            <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-800 col-span-2 sm:col-span-1">
-              <p className="text-sm font-medium">
-                {new Date(data.cachedAt).toLocaleString()}
-              </p>
-              <p className="text-gray-400 text-sm">Last Synced</p>
-            </div>
-          )}
         </div>
       )}
 
