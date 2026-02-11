@@ -365,3 +365,374 @@ export async function deleteRepoSecret(
     secret_name: secretName,
   });
 }
+
+// ── Repository Variables ────────────────────────────────────────────
+
+export interface RepoVariable {
+  name: string;
+  value: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * List all Actions variables for a repository.
+ */
+export async function listRepoVariables(repo: string): Promise<RepoVariable[]> {
+  const variables: RepoVariable[] = [];
+  let page = 1;
+
+  while (true) {
+    const { data } = await octokit.rest.actions.listRepoVariables({
+      owner: OWNER,
+      repo,
+      per_page: 100,
+      page,
+    });
+
+    for (const v of data.variables) {
+      variables.push({
+        name: v.name,
+        value: v.value,
+        created_at: v.created_at,
+        updated_at: v.updated_at,
+      });
+    }
+
+    if (variables.length >= data.total_count) break;
+    page++;
+  }
+
+  return variables;
+}
+
+/**
+ * Create a repository variable.
+ */
+export async function createRepoVariable(
+  repo: string,
+  name: string,
+  value: string
+): Promise<void> {
+  await octokit.rest.actions.createRepoVariable({
+    owner: OWNER,
+    repo,
+    name,
+    value,
+  });
+}
+
+/**
+ * Update an existing repository variable.
+ */
+export async function updateRepoVariable(
+  repo: string,
+  name: string,
+  value: string
+): Promise<void> {
+  await octokit.rest.actions.updateRepoVariable({
+    owner: OWNER,
+    repo,
+    name,
+    value,
+  });
+}
+
+/**
+ * Delete a repository variable.
+ */
+export async function deleteRepoVariable(
+  repo: string,
+  name: string
+): Promise<void> {
+  await octokit.rest.actions.deleteRepoVariable({
+    owner: OWNER,
+    repo,
+    name,
+  });
+}
+
+// ── Environments ────────────────────────────────────────────────────
+
+export interface RepoEnvironment {
+  id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * List all environments for a repository.
+ */
+export async function listEnvironments(repo: string): Promise<RepoEnvironment[]> {
+  const environments: RepoEnvironment[] = [];
+  let page = 1;
+
+  while (true) {
+    const { data } = await octokit.rest.repos.getAllEnvironments({
+      owner: OWNER,
+      repo,
+      per_page: 100,
+      page,
+    });
+
+    if (!data.environments || data.environments.length === 0) break;
+
+    for (const env of data.environments) {
+      environments.push({
+        id: env.id,
+        name: env.name,
+        created_at: env.created_at ?? "",
+        updated_at: env.updated_at ?? "",
+      });
+    }
+
+    if (environments.length >= (data.total_count ?? 0)) break;
+    page++;
+  }
+
+  return environments;
+}
+
+/**
+ * Create (or update) an environment for a repository.
+ * Uses PUT which is idempotent — creates if missing, no-ops if exists.
+ */
+export async function createEnvironment(
+  repo: string,
+  environmentName: string
+): Promise<void> {
+  await octokit.rest.repos.createOrUpdateEnvironment({
+    owner: OWNER,
+    repo,
+    environment_name: environmentName,
+  });
+}
+
+/**
+ * Delete an environment from a repository.
+ */
+export async function deleteEnvironment(
+  repo: string,
+  environmentName: string
+): Promise<void> {
+  await octokit.rest.repos.deleteAnEnvironment({
+    owner: OWNER,
+    repo,
+    environment_name: environmentName,
+  });
+}
+
+// ── Environment Secrets ─────────────────────────────────────────────
+
+/**
+ * List all Actions secrets for a repository environment.
+ */
+export async function listEnvSecrets(
+  repo: string,
+  environmentName: string
+): Promise<RepoSecret[]> {
+  const secrets: RepoSecret[] = [];
+  let page = 1;
+
+  // Need the environment ID for the secrets API (uses repository_id + environment_name)
+  while (true) {
+    const { data } = await octokit.request(
+      "GET /repos/{owner}/{repo}/environments/{environment_name}/secrets",
+      {
+        owner: OWNER,
+        repo,
+        environment_name: environmentName,
+        per_page: 100,
+        page,
+      }
+    );
+
+    for (const s of data.secrets) {
+      secrets.push({
+        name: s.name,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+      });
+    }
+
+    if (secrets.length >= data.total_count) break;
+    page++;
+  }
+
+  return secrets;
+}
+
+/**
+ * Get the public key for an environment (needed to encrypt environment secrets).
+ */
+export async function getEnvPublicKey(
+  repo: string,
+  environmentName: string
+): Promise<{ key_id: string; key: string }> {
+  const { data } = await octokit.request(
+    "GET /repos/{owner}/{repo}/environments/{environment_name}/secrets/public-key",
+    {
+      owner: OWNER,
+      repo,
+      environment_name: environmentName,
+    }
+  );
+
+  return { key_id: data.key_id, key: data.key };
+}
+
+/**
+ * Create or update an environment secret.
+ * Encrypts the value with the environment's public key using libsodium sealed box.
+ */
+export async function createOrUpdateEnvSecret(
+  repo: string,
+  environmentName: string,
+  secretName: string,
+  secretValue: string
+): Promise<void> {
+  await sodium.ready;
+
+  const { key_id, key } = await getEnvPublicKey(repo, environmentName);
+
+  const binKey = sodium.from_base64(key, sodium.base64_variants.ORIGINAL);
+  const binValue = sodium.from_string(secretValue);
+  const encryptedBytes = sodium.crypto_box_seal(binValue, binKey);
+  const encrypted_value = sodium.to_base64(
+    encryptedBytes,
+    sodium.base64_variants.ORIGINAL
+  );
+
+  await octokit.request(
+    "PUT /repos/{owner}/{repo}/environments/{environment_name}/secrets/{secret_name}",
+    {
+      owner: OWNER,
+      repo,
+      environment_name: environmentName,
+      secret_name: secretName,
+      encrypted_value,
+      key_id,
+    }
+  );
+}
+
+/**
+ * Delete an environment secret.
+ */
+export async function deleteEnvSecret(
+  repo: string,
+  environmentName: string,
+  secretName: string
+): Promise<void> {
+  await octokit.request(
+    "DELETE /repos/{owner}/{repo}/environments/{environment_name}/secrets/{secret_name}",
+    {
+      owner: OWNER,
+      repo,
+      environment_name: environmentName,
+      secret_name: secretName,
+    }
+  );
+}
+
+// ── Environment Variables ───────────────────────────────────────────
+
+/**
+ * List all Actions variables for a repository environment.
+ */
+export async function listEnvVariables(
+  repo: string,
+  environmentName: string
+): Promise<RepoVariable[]> {
+  const variables: RepoVariable[] = [];
+  let page = 1;
+
+  while (true) {
+    const { data } = await octokit.request(
+      "GET /repos/{owner}/{repo}/environments/{environment_name}/variables",
+      {
+        owner: OWNER,
+        repo,
+        environment_name: environmentName,
+        per_page: 100,
+        page,
+      }
+    );
+
+    for (const v of data.variables) {
+      variables.push({
+        name: v.name,
+        value: v.value,
+        created_at: v.created_at,
+        updated_at: v.updated_at,
+      });
+    }
+
+    if (variables.length >= data.total_count) break;
+    page++;
+  }
+
+  return variables;
+}
+
+/**
+ * Create an environment variable.
+ */
+export async function createEnvVariable(
+  repo: string,
+  environmentName: string,
+  name: string,
+  value: string
+): Promise<void> {
+  await octokit.request(
+    "POST /repos/{owner}/{repo}/environments/{environment_name}/variables",
+    {
+      owner: OWNER,
+      repo,
+      environment_name: environmentName,
+      name,
+      value,
+    }
+  );
+}
+
+/**
+ * Update an existing environment variable.
+ */
+export async function updateEnvVariable(
+  repo: string,
+  environmentName: string,
+  name: string,
+  value: string
+): Promise<void> {
+  await octokit.request(
+    "PATCH /repos/{owner}/{repo}/environments/{environment_name}/variables/{name}",
+    {
+      owner: OWNER,
+      repo,
+      environment_name: environmentName,
+      name,
+      value,
+    }
+  );
+}
+
+/**
+ * Delete an environment variable.
+ */
+export async function deleteEnvVariable(
+  repo: string,
+  environmentName: string,
+  name: string
+): Promise<void> {
+  await octokit.request(
+    "DELETE /repos/{owner}/{repo}/environments/{environment_name}/variables/{name}",
+    {
+      owner: OWNER,
+      repo,
+      environment_name: environmentName,
+      name,
+    }
+  );
+}

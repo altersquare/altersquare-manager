@@ -1,6 +1,6 @@
 # AlterSquare Manager
 
-A centralized GitHub organization management dashboard for the **altersquare** GitHub account. Manage collaborators, repository secrets, and invitations across all repositories from a single web interface.
+A centralized GitHub organization management dashboard for the **altersquare** GitHub account. Manage collaborators, repository secrets, repository variables, environments, environment secrets, environment variables, and invitations across all repositories from a single web interface.
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue?logo=typescript)
@@ -25,20 +25,42 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 
 - **List all repositories** — Browse every repo with name, description, visibility badge (public/private), and collaborator count.
 - **Filter & sort** — Search by name, toggle visibility with a segmented control (All / Public / Private), sort by name (A–Z / Z–A) or collaborator count (most / fewest). All filters compose together.
-- **Clickable repo cards** — Entire repo card navigates to the per-repo secrets page. A small icon links externally to GitHub.
+- **Clickable repo cards** — Entire repo card navigates to the per-repo manage page. A small icon links externally to GitHub.
 - **Staggered animations** — Cards fade in with staggered delays for a polished loading experience.
 
 ### Secrets Management
 
-- **Repository secrets** — Manages GitHub Actions **repository secrets** (not environment secrets).
+- **Repository secrets** — Manages GitHub Actions **repository secrets**.
 - **View secrets** — List all secrets for a repository with name and last-updated timestamp. Always fetched live from GitHub (no caching — secrets are sensitive).
 - **Create & update secrets** — Single upsert endpoint for both create and update. Values are encrypted using **libsodium sealed box** before being sent to the GitHub API. Strict name validation: only uppercase `A-Z`, digits `0-9`, and `_` allowed; names starting with `GITHUB_` are rejected. Validation errors appear inline in real time (no silent auto-uppercasing).
 - **Delete secrets** — Remove secrets with a confirmation dialog (admin-only).
 
+### Variables Management
+
+- **Repository variables** — Manages GitHub Actions **repository variables** (plaintext, not encrypted).
+- **View variables** — List all variables for a repository with name, value shown inline (truncated if long), and last-updated timestamp.
+- **Create & update variables** — Separate create and update endpoints. Same strict name validation as secrets.
+- **Delete variables** — Remove variables with a confirmation dialog (admin-only).
+
+### Environment Management
+
+- **Environment CRUD** — Create and delete GitHub Actions environments from the manage page. Members can create environments; only admins can delete them.
+- **Environment selector** — Dropdown selector on the per-repo manage page to switch between environments.
+- **Environment secrets** — Per-environment secrets encrypted with the environment-specific public key using libsodium sealed box. Same create/update/delete workflow as repo secrets.
+- **Environment variables** — Per-environment plaintext variables. Same create/update/delete workflow as repo variables.
+
 ### Invitation Management
 
-- **View pending invitations** — Displayed on the per-repo secrets page between the heading and secrets list. Always fetched live from GitHub. Shows avatar, username, and sent date for each invitation.
+- **View pending invitations** — Displayed on the per-repo manage page between the heading and secrets list. Always fetched live from GitHub. Shows avatar, username, and sent date for each invitation.
 - **Revoke invitations** — Cancel pending invitations with a confirmation modal (admin-only). List updates immediately after revocation.
+
+### Unified Manage Page
+
+- **Single scrollable page** — All repository secrets, variables, environments, and environment-scoped secrets/variables are managed from a single page at `/repos/{repo}/manage`.
+- **Per-section loading states** — Each section (secrets, variables, environments) has independent loading skeletons and error states with retry buttons.
+- **Toast notifications** — Success and error toasts for all create, update, and delete operations.
+- **Accessible modals** — All modals include `role="dialog"`, `aria-modal`, `aria-labelledby`, and Escape key dismissal.
+- **Staggered list animations** — Items fade in with staggered delays matching the repo browser style.
 
 ### Authentication & Authorization
 
@@ -154,6 +176,7 @@ The app expects two Authentik groups and a custom scope mapping:
 | Default `push` permission for collaborators | Keeps the add-collaborator UX simple |
 | Owner excluded from team list | Prevents accidental self-removal |
 | Repository secrets, not environment secrets | Per user requirement |
+| Now supports environment secrets, variables, and environment CRUD | Extended per user requirement |
 | Secrets always fetched live (no caching) | Sensitive data — stale cache is risky |
 | Strict secret name validation (no auto-uppercase) | Explicit errors over silent transformations |
 | Single upsert endpoint for create/update | GitHub's PUT endpoint is idempotent |
@@ -173,19 +196,23 @@ src/
 │   │   └── page.tsx                  # Blocked member landing page
 │   ├── repos/
 │   │   ├── page.tsx                  # Repository browser
-│   │   └── [repo]/secrets/page.tsx   # Per-repo secrets & invitations
+│   │   └── [repo]/manage/page.tsx    # Per-repo manage page (secrets, variables, environments)
 │   └── api/
 │       ├── auth/[...nextauth]/       # NextAuth OIDC handler
 │       ├── repos/                    # Repo listing & details
 │       │   ├── details/              # Repos with collaborator counts
 │       │   └── invitations/          # Pending invitations & revoke
-│       ├── secrets/                  # List, create, delete secrets
+│       ├── secrets/                  # List, create, delete repo secrets
+│       ├── variables/                # List, create, update, delete repo variables
+│       ├── environments/             # List, create, delete environments
+│       │   ├── secrets/              # List, create, delete env secrets
+│       │   └── variables/            # List, create, update, delete env variables
 │       └── team/                     # Team CRUD & cache refresh
 ├── components/                       # Modals, navbar, toast, skeletons
 ├── lib/
 │   ├── auth.ts                       # NextAuth config (Authentik OIDC)
 │   ├── cache.ts                      # File-based cache read/write
-│   ├── github.ts                     # Octokit helpers (fetchTeam, etc.)
+│   ├── github.ts                     # Octokit helpers (fetchTeam, secrets, variables, environments, etc.)
 │   └── session.ts                    # Session helpers, admin guard & repo access validation
 ├── proxy.ts                          # Auth middleware for page routes
 └── types/
@@ -198,17 +225,31 @@ data/
 
 ## API Reference
 
-| Endpoint                          | Method | Auth    | Description                              |
-| --------------------------------- | ------ | ------- | ---------------------------------------- |
-| `/api/team`                       | GET    | Member+ | Get team data (filtered for members)     |
-| `/api/team/refresh`               | POST   | Member+ | Force refresh team data from GitHub      |
-| `/api/team/add`                   | POST   | Admin   | Add collaborator to a repo               |
-| `/api/team/remove`                | POST   | Admin   | Remove collaborator from all their repos |
-| `/api/team/remove-one`            | POST   | Admin   | Remove collaborator from a single repo   |
-| `/api/repos`                      | GET    | Member+ | List all repositories                    |
-| `/api/repos/details`              | GET    | Member+ | Repos with collaborator counts (filtered for members) |
-| `/api/repos/invitations`          | GET    | Member+ | Pending invitations for a repo (repo access required) |
-| `/api/repos/invitations/revoke`   | POST   | Admin   | Revoke a pending invitation              |
-| `/api/secrets`                    | GET    | Member+ | List secrets for a repo (repo access required) |
-| `/api/secrets/create`             | POST   | Member+ | Create or update a secret (repo access required) |
-| `/api/secrets/delete`             | POST   | Admin   | Delete a secret                          |
+| Endpoint                                          | Method | Auth    | Description                                  |
+| ------------------------------------------------- | ------ | ------- | -------------------------------------------- |
+| `/api/team`                                        | GET    | Member+ | Get team data (filtered for members)         |
+| `/api/team/refresh`                                | POST   | Member+ | Force refresh team data from GitHub          |
+| `/api/team/add`                                    | POST   | Admin   | Add collaborator to a repo                   |
+| `/api/team/remove`                                 | POST   | Admin   | Remove collaborator from all their repos     |
+| `/api/team/remove-one`                             | POST   | Admin   | Remove collaborator from a single repo       |
+| `/api/repos`                                       | GET    | Member+ | List all repositories                        |
+| `/api/repos/details`                               | GET    | Member+ | Repos with collaborator counts (filtered)    |
+| `/api/repos/invitations`                           | GET    | Member+ | Pending invitations for a repo               |
+| `/api/repos/invitations/revoke`                    | POST   | Admin   | Revoke a pending invitation                  |
+| `/api/secrets`                                     | GET    | Member+ | List repo secrets (repo access required)     |
+| `/api/secrets/create`                              | POST   | Member+ | Create or update a repo secret               |
+| `/api/secrets/delete`                              | POST   | Admin   | Delete a repo secret                         |
+| `/api/variables`                                   | GET    | Member+ | List repo variables (repo access required)   |
+| `/api/variables/create`                            | POST   | Member+ | Create a repo variable                       |
+| `/api/variables/update`                            | POST   | Member+ | Update a repo variable                       |
+| `/api/variables/delete`                            | POST   | Admin   | Delete a repo variable                       |
+| `/api/environments`                                | GET    | Member+ | List environments (repo access required)     |
+| `/api/environments/create`                         | POST   | Member+ | Create an environment                        |
+| `/api/environments/delete`                         | POST   | Admin   | Delete an environment                        |
+| `/api/environments/secrets`                        | GET    | Member+ | List environment secrets                     |
+| `/api/environments/secrets/create`                 | POST   | Member+ | Create or update an environment secret       |
+| `/api/environments/secrets/delete`                 | POST   | Admin   | Delete an environment secret                 |
+| `/api/environments/variables`                      | GET    | Member+ | List environment variables                   |
+| `/api/environments/variables/create`               | POST   | Member+ | Create an environment variable               |
+| `/api/environments/variables/update`               | POST   | Member+ | Update an environment variable               |
+| `/api/environments/variables/delete`               | POST   | Admin   | Delete an environment variable               |

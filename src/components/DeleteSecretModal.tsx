@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface DeleteSecretModalProps {
   secretName: string;
@@ -17,6 +17,14 @@ export function DeleteSecretModal({
 }: DeleteSecretModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !loading) onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [loading, onClose]);
 
   const handleConfirm = async () => {
     setLoading(true);
@@ -49,7 +57,12 @@ export function DeleteSecretModal({
       />
 
       {/* Modal */}
-      <div className="relative bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-secret-modal-title"
+        className="relative bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl"
+      >
         {/* Warning icon */}
         <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 rounded-full bg-red-500/10">
           <svg
@@ -67,7 +80,7 @@ export function DeleteSecretModal({
           </svg>
         </div>
 
-        <h3 className="text-lg font-semibold text-center mb-2">
+        <h3 id="delete-secret-modal-title" className="text-lg font-semibold text-center mb-2">
           Delete Secret
         </h3>
         <p className="text-gray-400 text-center text-sm mb-6">

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface SecretModalProps {
   mode: "create" | "update";
   secretName?: string;
   repo: string;
+  env?: string; // when set, targets environment-scoped secret endpoints
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -27,6 +28,7 @@ export function SecretModal({
   mode,
   secretName,
   repo,
+  env,
   onClose,
   onSuccess,
 }: SecretModalProps) {
@@ -42,15 +44,27 @@ export function SecretModal({
     nameError === null &&
     !loading;
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !loading) onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [loading, onClose]);
+
   const handleSubmit = async () => {
     if (!canSubmit) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/secrets/create", {
+      const url = env ? "/api/environments/secrets/create" : "/api/secrets/create";
+      const body: Record<string, string> = { repo, name, value };
+      if (env) body.env = env;
+
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo, name, value }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -74,7 +88,12 @@ export function SecretModal({
       />
 
       {/* Modal */}
-      <div className="relative bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="secret-modal-title"
+        className="relative bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl"
+      >
         {/* Icon */}
         <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 rounded-full bg-amber-500/10">
           <svg
@@ -92,9 +111,15 @@ export function SecretModal({
           </svg>
         </div>
 
-        <h3 className="text-lg font-semibold text-center mb-5">
+        <h3 id="secret-modal-title" className="text-lg font-semibold text-center mb-1">
           {mode === "create" ? "New Secret" : "Update Secret"}
         </h3>
+        {env && (
+          <p className="text-gray-500 text-center text-xs mb-5">
+            Scope: {env} environment
+          </p>
+        )}
+        {!env && <div className="mb-5" />}
 
         {/* Form */}
         <div className="space-y-4">

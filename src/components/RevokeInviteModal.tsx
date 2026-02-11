@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface RevokeInviteModalProps {
   username: string;
@@ -19,6 +19,14 @@ export function RevokeInviteModal({
 }: RevokeInviteModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !loading) onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [loading, onClose]);
 
   const handleConfirm = async () => {
     setLoading(true);
@@ -51,7 +59,12 @@ export function RevokeInviteModal({
       />
 
       {/* Modal */}
-      <div className="relative bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="revoke-invite-modal-title"
+        className="relative bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl"
+      >
         {/* Warning icon */}
         <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 rounded-full bg-amber-500/10">
           <svg
@@ -69,7 +82,7 @@ export function RevokeInviteModal({
           </svg>
         </div>
 
-        <h3 className="text-lg font-semibold text-center mb-2">
+        <h3 id="revoke-invite-modal-title" className="text-lg font-semibold text-center mb-2">
           Revoke Invitation
         </h3>
         <p className="text-gray-400 text-center text-sm mb-6">

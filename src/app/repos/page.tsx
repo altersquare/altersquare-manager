@@ -256,7 +256,7 @@ export default function ReposPage() {
             {filtered.map((repo, idx) => (
               <Link
                 key={repo.name}
-                href={`/repos/${encodeURIComponent(repo.name)}/secrets`}
+                href={`/repos/${encodeURIComponent(repo.name)}/manage`}
                 className="block bg-gray-800/50 border border-gray-800 rounded-xl p-4 flex items-start sm:items-center gap-4 hover:bg-gray-800/80 hover:border-gray-700 transition-colors animate-fade-in-up cursor-pointer"
                 style={{ animationDelay: `${idx * 20}ms` }}
               >
