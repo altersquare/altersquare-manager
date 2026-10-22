@@ -4,6 +4,18 @@ import { useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useSync } from "@/components/SyncContext";
 import Link from "next/link";
+import { Button, EmptyState, ErrorState, PageHeader, SearchInput } from "@/components/ui";
+import {
+  ChevronDownIcon,
+  ChevronRightIcon,
+  ExternalLinkIcon,
+  FolderIcon,
+  SearchIcon,
+  UsersIcon,
+  WarningIcon,
+} from "@/components/icons";
+import { useUrlState } from "@/lib/useUrlState";
+import { plural } from "@/lib/format";
 
 interface RepoDetail {
   name: string;
@@ -12,6 +24,7 @@ interface RepoDetail {
   url: string;
   description: string | null;
   collaboratorCount: number;
+  archived: boolean;
 }
 
 type SortOption = "name-asc" | "name-desc" | "collabs-desc" | "collabs-asc";
@@ -25,12 +38,13 @@ export default function ReposPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accessDenied, setAccessDenied] = useState(false);
-  const [search, setSearch] = useState("");
-  const [visibility, setVisibility] = useState<VisibilityFilter>("all");
-  const [sort, setSort] = useState<SortOption>("name-asc");
+  const [search, setSearch] = useUrlState("q", "");
+  const [visibility, setVisibility] = useUrlState<VisibilityFilter>("visibility", "all");
+  const [sort, setSort] = useUrlState<SortOption>("sort", "name-asc");
   const { registerSyncCallback, unregisterSyncCallback } = useSync();
 
   const fetchRepos = useCallback(async () => {
+    setError(null);
     try {
       const res = await fetch("/api/repos/details");
       if (!res.ok) {
@@ -38,7 +52,7 @@ export default function ReposPage() {
           setAccessDenied(true);
           return;
         }
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Failed to fetch repos");
       }
       const data = await res.json();
@@ -62,18 +76,16 @@ export default function ReposPage() {
     return () => unregisterSyncCallback(cb);
   }, [registerSyncCallback, unregisterSyncCallback, fetchRepos]);
 
-  // Filter & sort
+  const q = search.toLowerCase();
   const filtered = repos
     .filter((r) => {
-      if (search && !r.name.toLowerCase().includes(search.toLowerCase())) return false;
+      if (q && !r.name.toLowerCase().includes(q) && !r.description?.toLowerCase().includes(q)) return false;
       if (visibility === "public" && r.private) return false;
       if (visibility === "private" && !r.private) return false;
       return true;
     })
     .sort((a, b) => {
       switch (sort) {
-        case "name-asc":
-          return a.name.localeCompare(b.name);
         case "name-desc":
           return b.name.localeCompare(a.name);
         case "collabs-desc":
@@ -81,251 +93,186 @@ export default function ReposPage() {
         case "collabs-asc":
           return a.collaboratorCount - b.collaboratorCount || a.name.localeCompare(b.name);
         default:
-          return 0;
+          return a.name.localeCompare(b.name);
       }
     });
 
-  const hasFilters = search || visibility !== "all";
-
+  const hasFilters = Boolean(search) || visibility !== "all";
   const clearFilters = () => {
     setSearch("");
     setVisibility("all");
-    setSort("name-asc");
   };
+  const ready = !loading && !error && !accessDenied;
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold">Repositories</h1>
-        {!loading && !error && (
-          <span className="text-gray-400 text-sm">{totalRepos} total</span>
-        )}
-      </div>
+      <PageHeader
+        title="Repositories"
+        subtitle={
+          ready
+            ? isAdmin
+              ? `${plural(totalRepos, "repository", "repositories")} — open one to manage access, secrets and variables`
+              : `${plural(totalRepos, "repository", "repositories")} you collaborate on`
+            : "Open a repository to manage access, secrets and variables"
+        }
+      />
 
-      {/* Filter bar */}
-      {!loading && !error && repos.length > 0 && (
-        <div className="flex flex-col sm:flex-row gap-3 mb-6">
-          {/* Search */}
-          <div className="relative flex-1">
-            <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search repos..."
-              className="w-full pl-10 pr-8 py-2.5 bg-gray-800/50 border border-gray-700 rounded-lg text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+      {ready && repos.length > 0 && (
+        <div className="flex flex-col sm:flex-row gap-3 mb-4">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search by name or description…"
+            className="flex-1"
+          />
+
+          <div className="flex gap-3">
+            <div role="group" aria-label="Visibility" className="flex rounded-lg border border-gray-700 overflow-hidden shrink-0">
+              {(["all", "public", "private"] as VisibilityFilter[]).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setVisibility(v)}
+                  aria-pressed={visibility === v}
+                  className={`px-3 py-2 text-sm font-medium capitalize transition-colors cursor-pointer ${
+                    visibility === v
+                      ? "bg-gray-700 text-white"
+                      : "bg-gray-800/50 text-gray-400 hover:text-gray-200 hover:bg-gray-800"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative shrink-0 flex-1 sm:flex-none">
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortOption)}
+                aria-label="Sort repositories"
+                className="appearance-none w-full px-3 py-2 pr-9 bg-gray-800/50 border border-gray-700 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors cursor-pointer"
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            )}
-          </div>
-
-          {/* Visibility toggle */}
-          <div className="flex rounded-lg border border-gray-700 overflow-hidden shrink-0">
-            {(["all", "public", "private"] as VisibilityFilter[]).map((v) => (
-              <button
-                key={v}
-                onClick={() => setVisibility(v)}
-                className={`px-3.5 py-2.5 text-sm font-medium capitalize transition-colors ${
-                  visibility === v
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-800/50 text-gray-400 hover:text-gray-200 hover:bg-gray-800"
-                }`}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-
-          {/* Sort dropdown */}
-          <div className="relative shrink-0">
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as SortOption)}
-              className="appearance-none px-4 py-2.5 pr-9 bg-gray-800/50 border border-gray-700 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors cursor-pointer"
-            >
-              <option value="name-asc">Name A→Z</option>
-              <option value="name-desc">Name Z→A</option>
-              <option value="collabs-desc">Most Collaborators</option>
-              <option value="collabs-asc">Fewest Collaborators</option>
-            </select>
-            <svg
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
+                <option value="name-asc">Name A→Z</option>
+                <option value="name-desc">Name Z→A</option>
+                <option value="collabs-desc">Most collaborators</option>
+                <option value="collabs-asc">Fewest collaborators</option>
+              </select>
+              <ChevronDownIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+            </div>
           </div>
         </div>
       )}
 
-      {/* Loading skeleton */}
       {loading && (
-        <div className="animate-pulse space-y-3">
+        <div className="animate-pulse space-y-2">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div
-              key={i}
-              className="bg-gray-800/50 rounded-xl p-4 flex items-center gap-4"
-            >
+            <div key={i} className="bg-gray-800/50 rounded-xl p-4 flex items-center gap-4">
               <div className="flex-1 space-y-2">
                 <div className="h-4 w-40 bg-gray-700 rounded" />
                 <div className="h-3 w-64 bg-gray-700/60 rounded" />
               </div>
-              <div className="h-6 w-16 bg-gray-700 rounded-full" />
               <div className="h-6 w-24 bg-gray-700 rounded-full" />
             </div>
           ))}
         </div>
       )}
 
-      {/* Error state */}
-      {error && (
-        <div className="text-center py-16">
-          <svg className="w-16 h-16 mx-auto text-red-500/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-          </svg>
-          <h2 className="text-xl font-semibold text-gray-300 mb-2">Failed to load repositories</h2>
-          <p className="text-gray-500">{error}</p>
-        </div>
-      )}
+      {error && <ErrorState message={error} onRetry={() => { setLoading(true); fetchRepos(); }} />}
 
-      {/* Empty state (no repos at all) */}
-      {!loading && !error && !accessDenied && repos.length === 0 && (
-        <div className="text-center py-16">
-          <svg className="w-16 h-16 mx-auto text-gray-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-          </svg>
-          <h2 className="text-xl font-semibold text-gray-300 mb-2">
-            {isAdmin ? "No repositories found" : "No repositories available"}
-          </h2>
-          <p className="text-gray-500">
-            {isAdmin
-              ? "No repos were found for this account."
-              : "You are not a collaborator on any repositories."}
-          </p>
-        </div>
-      )}
-
-      {/* Access denied state */}
       {!loading && accessDenied && (
-        <div className="text-center py-16">
-          <svg className="w-16 h-16 mx-auto text-yellow-500/50 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-          </svg>
-          <h2 className="text-xl font-semibold text-gray-300 mb-2">Access Denied</h2>
-          <p className="text-gray-500">You do not have permission to view repositories. Contact your administrator.</p>
-        </div>
+        <EmptyState
+          icon={<WarningIcon />}
+          title="You don't have permission to view repositories"
+          description="Ask an admin to check your account's GitHub username."
+        />
       )}
 
-      {/* No matches */}
-      {!loading && !error && repos.length > 0 && filtered.length === 0 && (
-        <div className="text-center py-16">
-          <svg className="w-12 h-12 mx-auto text-gray-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <h2 className="text-lg font-semibold text-gray-300 mb-1">No matches</h2>
-          <p className="text-gray-500 text-sm">
-            No repositories match your filters.
-          </p>
-          <button
-            onClick={clearFilters}
-            className="mt-3 text-sm text-blue-400 hover:text-blue-300 underline"
-          >
-            Clear filters
-          </button>
-        </div>
+      {ready && repos.length === 0 && (
+        <EmptyState
+          icon={<FolderIcon />}
+          title={isAdmin ? "No repositories found" : "No repositories shared with you"}
+          description={
+            isAdmin
+              ? "Try syncing from GitHub using the button in the top bar."
+              : "Once an admin adds you as a collaborator on a repo, it will show up here."
+          }
+        />
       )}
 
-      {/* Repo list */}
-      {!loading && !error && filtered.length > 0 && (
+      {ready && repos.length > 0 && filtered.length === 0 && (
+        <EmptyState
+          icon={<SearchIcon />}
+          title="No matches"
+          description="No repositories match your filters."
+          action={<Button size="sm" onClick={clearFilters}>Clear filters</Button>}
+        />
+      )}
+
+      {ready && filtered.length > 0 && (
         <>
           {hasFilters && (
             <p className="text-xs text-gray-500 mb-3">
-              Showing {filtered.length} of {totalRepos} repos
+              Showing {filtered.length} of {totalRepos}
             </p>
           )}
-          <div className="space-y-3">
+          <ul className="space-y-2">
             {filtered.map((repo, idx) => (
-              <Link
+              <li
                 key={repo.name}
-                href={`/repos/${encodeURIComponent(repo.name)}/manage`}
-                className="block bg-gray-800/50 border border-gray-800 rounded-xl p-4 flex items-start sm:items-center gap-4 hover:bg-gray-800/80 hover:border-gray-700 transition-colors animate-fade-in-up cursor-pointer"
-                style={{ animationDelay: `${idx * 20}ms` }}
+                className="group relative bg-gray-800/40 border border-gray-800 rounded-xl hover:bg-gray-800/70 hover:border-gray-700 transition-colors animate-fade-in-up"
+                style={{ animationDelay: `${Math.min(idx, 15) * 20}ms` }}
               >
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium truncate">
-                      {repo.name}
-                    </span>
-                    {/* Visibility badge */}
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                        repo.private
-                          ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                          : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                      }`}
-                    >
-                      {repo.private ? "Private" : "Public"}
-                    </span>
-                    {/* GitHub external link */}
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        window.open(repo.url, "_blank", "noopener,noreferrer");
-                      }}
-                      className="text-gray-500 hover:text-blue-400 transition-colors"
-                      title="Open on GitHub"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
-                    </button>
+                <Link
+                  href={`/repos/${encodeURIComponent(repo.name)}/manage`}
+                  className="flex items-center gap-4 p-4 pr-14"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium truncate group-hover:text-white">{repo.name}</span>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${
+                          repo.private
+                            ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                            : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                        }`}
+                      >
+                        {repo.private ? "Private" : "Public"}
+                      </span>
+                      {repo.archived && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border bg-gray-700/40 text-gray-400 border-gray-600">
+                          Archived
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-gray-500 text-sm mt-1 truncate">
+                      {repo.description || <span className="italic text-gray-600">No description</span>}
+                    </p>
                   </div>
-                  <p className="text-gray-500 text-sm mt-1 truncate">
-                    {repo.description || <span className="italic">No description</span>}
-                  </p>
-                </div>
 
-                {/* Collaborator count */}
-                <div className="shrink-0">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-700/60 text-gray-300 border border-gray-700">
-                    <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                    {repo.collaboratorCount}
+                  <span
+                    className="hidden sm:inline-flex items-center gap-1.5 text-xs text-gray-400 shrink-0"
+                    title={`${plural(repo.collaboratorCount, "collaborator")} (excluding the owner)`}
+                  >
+                    <UsersIcon className="w-3.5 h-3.5" />
+                    {plural(repo.collaboratorCount, "collaborator")}
                   </span>
-                </div>
 
-                {/* Arrow indicator */}
-                <div className="shrink-0 text-gray-600">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </Link>
+                  <ChevronRightIcon className="w-5 h-5 text-gray-600 group-hover:text-gray-300 shrink-0 hidden sm:block" />
+                </Link>
+                {/* Sibling of the card link (not nested) so it stays a real, keyboard-reachable link */}
+                <a
+                  href={repo.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open on GitHub"
+                  aria-label={`Open ${repo.name} on GitHub`}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-2 text-gray-500 hover:text-blue-400 hover:bg-gray-700/60 rounded-md"
+                >
+                  <ExternalLinkIcon />
+                </a>
+              </li>
             ))}
-          </div>
+          </ul>
         </>
       )}
     </main>

@@ -31,6 +31,7 @@ export async function GET() {
         private: r.private,
         url: r.url,
         description: r.description,
+        archived: r.archived ?? false,
         collaboratorCount: collabCounts.get(r.name) || 0,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));

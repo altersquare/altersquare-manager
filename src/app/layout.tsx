@@ -6,7 +6,7 @@ import { Navbar } from "@/components/Navbar";
 import { SessionProvider } from "next-auth/react";
 
 export const metadata: Metadata = {
-  title: "GitHub Manager",
+  title: { default: "Team · GitHub Manager", template: "%s · GitHub Manager" },
   description: "Manage collaborators across altersquare repos",
 };
 

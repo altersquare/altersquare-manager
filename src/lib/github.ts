@@ -13,6 +13,8 @@ export interface Repo {
   private: boolean;
   url: string;
   description: string | null;
+  /** Absent in caches written before this field existed. */
+  archived?: boolean;
 }
 
 /**
@@ -41,6 +43,7 @@ export async function fetchAllRepos(): Promise<Repo[]> {
         private: repo.private,
         url: repo.html_url,
         description: repo.description,
+        archived: repo.archived,
       });
     }
 
@@ -206,6 +209,8 @@ export interface PendingInvitation {
   username: string;
   avatarUrl: string;
   createdAt: string;
+  /** GitHub expires invitations after 7 days; expired ones must be re-sent. */
+  expired: boolean;
 }
 
 /**
@@ -237,6 +242,7 @@ export async function fetchPendingInvitations(
           username: inv.invitee.login,
           avatarUrl: inv.invitee.avatar_url,
           createdAt: inv.created_at,
+          expired: Boolean(inv.expired),
         });
       }
 
@@ -266,6 +272,26 @@ export async function revokeInvitation(
     owner,
     repo,
     invitation_id: invitationId,
+  });
+}
+
+/**
+ * Fetch pending invitations across many repos (parallel; per-repo failures are skipped).
+ */
+export async function fetchAllPendingInvitations(
+  repos: string[]
+): Promise<(PendingInvitation & { repo: string })[]> {
+  const results = await Promise.allSettled(
+    repos.map(async (repo) =>
+      (await fetchPendingInvitations(OWNER, repo)).map((inv) => ({ ...inv, repo }))
+    )
+  );
+  return results.flatMap((r) => {
+    if (r.status === "rejected") {
+      console.error("Failed to fetch invitations:", r.reason);
+      return [];
+    }
+    return r.value;
   });
 }
 
@@ -735,4 +761,133 @@ export async function deleteEnvVariable(
       name,
     }
   );
+}
+
+// ── Deploy Keys ─────────────────────────────────────────────────────
+
+export interface DeployKey {
+  id: number;
+  title: string;
+  key: string;
+  readOnly: boolean;
+  createdAt: string;
+  addedBy: string | null;
+  lastUsed: string | null;
+}
+
+/**
+ * List deploy keys (SSH keys with access to a single repo).
+ */
+export async function listDeployKeys(repo: string): Promise<DeployKey[]> {
+  const data = await octokit.paginate(octokit.rest.repos.listDeployKeys, {
+    owner: OWNER,
+    repo,
+    per_page: 100,
+  });
+  return data.map((k) => ({
+    id: k.id,
+    title: k.title,
+    key: k.key,
+    readOnly: k.read_only,
+    createdAt: k.created_at,
+    addedBy: k.added_by ?? null,
+    lastUsed: k.last_used ?? null,
+  }));
+}
+
+/**
+ * Add a deploy key. Read-only unless explicitly granted write access.
+ */
+export async function createDeployKey(
+  repo: string,
+  title: string,
+  key: string,
+  readOnly: boolean
+): Promise<void> {
+  await octokit.rest.repos.createDeployKey({
+    owner: OWNER,
+    repo,
+    title,
+    key,
+    read_only: readOnly,
+  });
+}
+
+/**
+ * Delete a deploy key.
+ */
+export async function deleteDeployKey(repo: string, keyId: number): Promise<void> {
+  await octokit.rest.repos.deleteDeployKey({
+    owner: OWNER,
+    repo,
+    key_id: keyId,
+  });
+}
+
+// ── Repository Settings ─────────────────────────────────────────────
+
+export interface RepoSettings {
+  description: string;
+  homepage: string;
+  topics: string[];
+  private: boolean;
+  archived: boolean;
+  defaultBranch: string;
+}
+
+/**
+ * Fetch editable settings for a repository.
+ */
+export async function getRepoSettings(repo: string): Promise<RepoSettings> {
+  const { data } = await octokit.rest.repos.get({ owner: OWNER, repo });
+  return {
+    description: data.description ?? "",
+    homepage: data.homepage ?? "",
+    topics: data.topics ?? [],
+    private: data.private,
+    archived: data.archived,
+    defaultBranch: data.default_branch,
+  };
+}
+
+/**
+ * Update description, homepage, visibility and/or archived state.
+ * Only the provided fields are changed.
+ */
+export async function updateRepoSettings(
+  repo: string,
+  changes: { description?: string; homepage?: string; private?: boolean; archived?: boolean }
+): Promise<void> {
+  await octokit.rest.repos.update({ owner: OWNER, repo, ...changes });
+}
+
+/**
+ * Replace a repository's topics.
+ */
+export async function replaceRepoTopics(repo: string, topics: string[]): Promise<void> {
+  await octokit.rest.repos.replaceAllTopics({ owner: OWNER, repo, names: topics });
+}
+
+// ── Rate Limit ──────────────────────────────────────────────────────
+
+export interface RateLimit {
+  limit: number;
+  remaining: number;
+  used: number;
+  /** ISO time when the quota resets. */
+  resetAt: string;
+}
+
+/**
+ * Core REST API quota for the server's token. This call does not count against the limit.
+ */
+export async function getRateLimit(): Promise<RateLimit> {
+  const { data } = await octokit.rest.rateLimit.get();
+  const core = data.resources.core;
+  return {
+    limit: core.limit,
+    remaining: core.remaining,
+    used: core.used,
+    resetAt: new Date(core.reset * 1000).toISOString(),
+  };
 }

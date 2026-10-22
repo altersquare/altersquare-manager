@@ -1,357 +1,243 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { Button, CheckSquare, Modal, SearchInput, inputClass } from "@/components/ui";
+import { UserPlusIcon } from "@/components/icons";
+import { RepoCheckRow, RepoProgress, RepoProgressList } from "@/components/RepoProgressList";
+import { plural } from "@/lib/format";
 
-export type RepoAddStatus = "pending" | "adding" | "done" | "failed";
-
-export interface RepoAddProgress {
-  repo: string;
-  status: RepoAddStatus;
-  error?: string;
+export interface AddResult {
+  username: string;
+  /** Repos where GitHub sent an invitation (access starts once accepted). */
+  invited: string[];
+  /** Repos where the user already had access (no invitation needed). */
+  added: string[];
+  failed: string[];
 }
 
 interface AddModalProps {
   allRepos: string[];
-  onConfirm: (username: string, selectedRepos: string[]) => void;
-  onCancel: () => void;
-  loading: boolean;
-  progress: RepoAddProgress[] | null;
+  /** Current collaborators, used to mark repos a user already has. */
+  members: { username: string; repos: string[] }[];
+  /** Skip the repo picker and add to just this repo. */
+  fixedRepo?: string;
+  onClose: () => void;
+  onDone: (result: AddResult) => void;
 }
 
-const statusIcon: Record<RepoAddStatus, React.ReactNode> = {
-  pending: (
-    <svg className="w-4 h-4 text-gray-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-      <circle cx="12" cy="12" r="10" />
-    </svg>
-  ),
-  adding: (
-    <svg className="w-4 h-4 text-blue-400 shrink-0 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-    </svg>
-  ),
-  done: (
-    <svg className="w-4 h-4 text-emerald-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-    </svg>
-  ),
-  failed: (
-    <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-    </svg>
-  ),
-};
+const USERNAME_PATTERN = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
 
-const statusLabel: Record<RepoAddStatus, string> = {
-  pending: "",
-  adding: "Adding...",
-  done: "Added",
-  failed: "Failed",
-};
+/** Accepts "octocat", "@octocat" or "https://github.com/octocat". */
+function normalizeUsername(raw: string) {
+  return raw
+    .trim()
+    .replace(/^https?:\/\/(www\.)?github\.com\//i, "")
+    .replace(/^@/, "")
+    .replace(/\/.*$/, "");
+}
 
-export function AddModal({
-  allRepos,
-  onConfirm,
-  onCancel,
-  loading,
-  progress,
-}: AddModalProps) {
-  const [username, setUsername] = useState("");
-  const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
+export function AddModal({ allRepos, members, fixedRepo, onClose, onDone }: AddModalProps) {
+  const [rawUsername, setRawUsername] = useState("");
+  const [selectedRepos, setSelectedRepos] = useState<Set<string>>(
+    new Set(fixedRepo ? [fixedRepo] : [])
+  );
   const [repoSearch, setRepoSearch] = useState("");
-  const inProgress = progress !== null;
-  const progressTotal = progress?.length ?? 0;
-  const completedCount =
-    progress?.filter((p) => p.status === "done" || p.status === "failed")
-      .length ?? 0;
-  const allDone = inProgress && completedCount === progressTotal;
+  const [progress, setProgress] = useState<RepoProgress[] | null>(null);
+  const [summary, setSummary] = useState<AddResult | null>(null);
 
-  const toggleRepo = (repo: string) => {
+  const username = normalizeUsername(rawUsername);
+  const usernameError =
+    username.length > 0 && !USERNAME_PATTERN.test(username) ? "That doesn't look like a GitHub username." : null;
+
+  const existingRepos = useMemo(() => {
+    const m = members.find((m) => m.username.toLowerCase() === username.toLowerCase());
+    return new Set(m?.repos ?? []);
+  }, [members, username]);
+
+  // Drop repos the user already has from the selection
+  const effectiveSelection = [...selectedRepos].filter((r) => !existingRepos.has(r));
+  const running = progress !== null && summary === null;
+  const canSubmit = username.length > 0 && !usernameError && effectiveSelection.length > 0 && progress === null;
+
+  const filteredRepos = allRepos.filter((r) => r.toLowerCase().includes(repoSearch.toLowerCase()));
+  const selectable = filteredRepos.filter((r) => !existingRepos.has(r));
+  const allFilteredSelected = selectable.length > 0 && selectable.every((r) => selectedRepos.has(r));
+
+  const toggleRepo = (repo: string) =>
     setSelectedRepos((prev) => {
       const next = new Set(prev);
-      if (next.has(repo)) {
-        next.delete(repo);
-      } else {
-        next.add(repo);
+      if (next.has(repo)) next.delete(repo);
+      else next.add(repo);
+      return next;
+    });
+
+  const toggleAll = () =>
+    setSelectedRepos((prev) => {
+      const next = new Set(prev);
+      for (const r of selectable) {
+        if (allFilteredSelected) next.delete(r);
+        else next.add(r);
       }
       return next;
     });
+
+  const run = async () => {
+    if (!canSubmit) return;
+    const repos = effectiveSelection;
+    setProgress(repos.map((repo) => ({ repo, status: "pending" })));
+    const result: AddResult = { username, invited: [], added: [], failed: [] };
+
+    for (let i = 0; i < repos.length; i++) {
+      const repo = repos[i];
+      setProgress((prev) => prev!.map((p, idx) => (idx === i ? { ...p, status: "working" } : p)));
+      try {
+        const res = await fetch("/api/team/add", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, repo }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Failed");
+        const status = data.invitationCreated ? "invited" : "done";
+        (data.invitationCreated ? result.invited : result.added).push(repo);
+        setProgress((prev) => prev!.map((p, idx) => (idx === i ? { ...p, status } : p)));
+      } catch (err) {
+        result.failed.push(repo);
+        const error = err instanceof Error ? err.message : "Unknown error";
+        setProgress((prev) => prev!.map((p, idx) => (idx === i ? { ...p, status: "failed", error } : p)));
+      }
+    }
+
+    setSummary(result);
+    onDone(result);
   };
 
-  const filteredRepos = allRepos.filter((repo) =>
-    repo.toLowerCase().includes(repoSearch.toLowerCase())
+  const subtitle = fixedRepo ? (
+    <>Invite someone to {fixedRepo}</>
+  ) : (
+    <>Invite a GitHub user to one or more repositories</>
   );
 
-  const allFilteredSelected =
-    filteredRepos.length > 0 &&
-    filteredRepos.every((repo) => selectedRepos.has(repo));
-
-  const toggleAll = () => {
-    setSelectedRepos((prev) => {
-      const next = new Set(prev);
-      if (allFilteredSelected) {
-        // Deselect only the currently visible repos
-        for (const repo of filteredRepos) {
-          next.delete(repo);
-        }
-      } else {
-        // Select all currently visible repos
-        for (const repo of filteredRepos) {
-          next.add(repo);
-        }
-      }
-      return next;
-    });
-  };
-
-  const noneSelected = selectedRepos.size === 0;
-  const trimmedUsername = username.trim();
-  const canSubmit = trimmedUsername.length > 0 && !noneSelected && !loading;
-
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={!loading ? onCancel : undefined}
-      />
-
-      {/* Modal */}
-      <div className="relative bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl">
-        {/* Icon */}
-        <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 rounded-full bg-blue-500/10">
-          <svg
-            className="w-6 h-6 text-blue-400"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
-            />
-          </svg>
-        </div>
-
-        <h3 className="text-lg font-semibold text-center mb-4">
-          Add Collaborator
-        </h3>
-
-        {/* Progress summary */}
-        {inProgress && (
-          <p className="text-gray-400 text-center text-sm mb-3">
-            Adding{" "}
-            <span className="text-white font-medium">{trimmedUsername}</span> —{" "}
-            <span className="text-white font-medium">
-              {completedCount}/{progressTotal}
-            </span>{" "}
-            repos done
-          </p>
-        )}
-
-        {/* Progress bar */}
-        {inProgress && (
-          <div className="w-full bg-gray-800 rounded-full h-1.5 mb-4 overflow-hidden">
-            <div
-              className="h-full bg-blue-500 rounded-full transition-all duration-300"
-              style={{
-                width: `${progressTotal > 0 ? (completedCount / progressTotal) * 100 : 0}%`,
-              }}
-            />
-          </div>
-        )}
-
-        {/* Username input (only before progress) */}
-        {!inProgress && (
-          <div className="mb-4">
-            <label className="block text-sm text-gray-400 mb-1.5">
-              GitHub Username
-            </label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. octocat"
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && canSubmit) {
-                  onConfirm(trimmedUsername, Array.from(selectedRepos));
-                }
-              }}
-            />
-          </div>
-        )}
-
-        {/* Search + Select All + Repo list (only before progress) */}
-        {!inProgress && (
-          <div className="mb-2">
-            {/* Repo search input */}
-            <div className="relative mb-2">
-              <svg
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                type="text"
-                value={repoSearch}
-                onChange={(e) => setRepoSearch(e.target.value)}
-                placeholder="Search repos..."
-                className="w-full pl-9 pr-8 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              {repoSearch && (
-                <button
-                  onClick={() => setRepoSearch("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+    <Modal
+      title={summary ? "Done" : running ? `Inviting ${username}…` : "Add collaborator"}
+      subtitle={subtitle}
+      icon={<UserPlusIcon className="w-5 h-5" />}
+      busy={running}
+      onClose={onClose}
+      footer={
+        summary ? (
+          <Button variant="primary" onClick={onClose} autoFocus>
+            Close
+          </Button>
+        ) : (
+          <>
+            <Button onClick={onClose} disabled={running}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={run} disabled={!canSubmit} loading={running}>
+              {fixedRepo ? "Send invite" : `Invite to ${plural(effectiveSelection.length, "repo")}`}
+            </Button>
+          </>
+        )
+      }
+    >
+      {progress ? (
+        <div className="space-y-3">
+          {summary && (
+            <div className="text-sm text-gray-300 space-y-1">
+              {summary.invited.length > 0 && (
+                <p>
+                  Invitation sent for {plural(summary.invited.length, "repo")}.{" "}
+                  <span className="text-gray-400">
+                    {username} gets access after accepting the invite from GitHub — until then they show under
+                    the repo&apos;s pending invitations.
+                  </span>
+                </p>
+              )}
+              {summary.added.length > 0 && <p>Already had access to {plural(summary.added.length, "repo")}.</p>}
+              {summary.failed.length > 0 && (
+                <p className="text-red-400">Failed on {plural(summary.failed.length, "repo")} — see below.</p>
               )}
             </div>
-
-            {/* Select All toggle + selected count */}
-            <div className="flex items-center justify-between mb-1">
-              <button
-                onClick={toggleAll}
-                disabled={filteredRepos.length === 0}
-                className="flex items-center gap-2 px-1 py-1 text-xs text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <div
-                  className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
-                    allFilteredSelected
-                      ? "bg-blue-600 border-blue-600"
-                      : "border-gray-600 bg-transparent"
-                  }`}
-                >
-                  {allFilteredSelected && (
-                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                  {!allFilteredSelected && selectedRepos.size > 0 && (
-                    <div className="w-2 h-0.5 bg-gray-400 rounded" />
-                  )}
-                </div>
-                {allFilteredSelected ? "Deselect All" : "Select All"}
-              </button>
-              <span className="text-xs text-gray-500">
-                {selectedRepos.size} repo{selectedRepos.size !== 1 ? "s" : ""} selected
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Repo list — checkboxes or progress */}
-        <div className="max-h-52 overflow-y-auto mb-6 space-y-1">
-          {inProgress
-            ? progress!.map((item) => (
-                <div
-                  key={item.repo}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                    item.status === "done"
-                      ? "bg-emerald-500/10"
-                      : item.status === "failed"
-                        ? "bg-red-500/10"
-                        : item.status === "adding"
-                          ? "bg-blue-500/5"
-                          : "bg-gray-800/60"
-                  }`}
-                >
-                  {statusIcon[item.status]}
-                  <span
-                    className={`flex-1 ${
-                      item.status === "done"
-                        ? "text-emerald-300"
-                        : item.status === "failed"
-                          ? "text-red-300"
-                          : "text-gray-300"
-                    }`}
-                  >
-                    {item.repo}
-                  </span>
-                  {item.status !== "pending" && (
-                    <span
-                      className={`text-xs ${
-                        item.status === "done"
-                          ? "text-emerald-400"
-                          : item.status === "failed"
-                            ? "text-red-400"
-                            : "text-blue-400"
-                      }`}
-                    >
-                      {statusLabel[item.status]}
-                    </span>
-                  )}
-                </div>
-              ))
-            : filteredRepos.map((repo) => {
-                const checked = selectedRepos.has(repo);
-                return (
-                  <label
-                    key={repo}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm cursor-pointer transition-colors ${
-                      checked
-                        ? "bg-blue-500/10 hover:bg-blue-500/15"
-                        : "bg-gray-800/60 hover:bg-gray-800"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleRepo(repo)}
-                      className="sr-only"
-                    />
-                    <div
-                      className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                        checked
-                          ? "bg-blue-600 border-blue-600"
-                          : "border-gray-600 bg-transparent"
-                      }`}
-                    >
-                      {checked && (
-                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </div>
-                    <span className={checked ? "text-blue-300" : "text-gray-400"}>
-                      {repo}
-                    </span>
-                  </label>
-                );
-              })}
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-3">
-          <button
-            onClick={onCancel}
-            disabled={loading && !allDone}
-            className="flex-1 px-4 py-2.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-sm font-medium transition-colors disabled:opacity-50"
-          >
-            {allDone ? "Close" : "Cancel"}
-          </button>
-          {!inProgress && (
-            <button
-              onClick={() =>
-                onConfirm(trimmedUsername, Array.from(selectedRepos))
-              }
-              disabled={!canSubmit}
-              className="flex-1 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Add ({selectedRepos.size})
-            </button>
           )}
+          <RepoProgressList
+            items={progress}
+            labels={{ working: "Inviting…", invited: "Invited", done: "Already has access", failed: "Failed" }}
+          />
         </div>
-      </div>
-    </div>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            run();
+          }}
+          className="space-y-4"
+        >
+          <div>
+            <label htmlFor="add-username" className="block text-sm font-medium text-gray-300 mb-1.5">
+              GitHub username
+            </label>
+            <input
+              id="add-username"
+              type="text"
+              value={rawUsername}
+              onChange={(e) => setRawUsername(e.target.value)}
+              placeholder="octocat, @octocat or profile URL"
+              autoFocus
+              autoComplete="off"
+              spellCheck={false}
+              className={`${inputClass} ${usernameError ? "border-red-500/60 focus:border-red-500 focus:ring-red-500" : ""}`}
+            />
+            {usernameError && <p className="mt-1.5 text-xs text-red-400">{usernameError}</p>}
+            {!usernameError && existingRepos.size > 0 && (
+              <p className="mt-1.5 text-xs text-gray-500">
+                {username} already has access to {plural(existingRepos.size, "repo")}
+                {fixedRepo && existingRepos.has(fixedRepo) && <span className="text-amber-400"> — including this one</span>}.
+              </p>
+            )}
+          </div>
+
+          {!fixedRepo && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-sm font-medium text-gray-300">Repositories</span>
+                <span className="text-xs text-gray-500">{effectiveSelection.length} selected</span>
+              </div>
+              <SearchInput value={repoSearch} onChange={setRepoSearch} placeholder="Filter repos…" className="mb-2" />
+              <button
+                type="button"
+                onClick={toggleAll}
+                disabled={selectable.length === 0}
+                className="flex items-center gap-2 px-3 py-1 mb-1 text-xs text-gray-400 hover:text-gray-200 disabled:opacity-40 cursor-pointer"
+              >
+                <CheckSquare checked={allFilteredSelected} indeterminate={selectedRepos.size > 0} />
+                {allFilteredSelected ? "Deselect" : "Select"} {repoSearch ? "matching" : "all"} ({selectable.length})
+              </button>
+              <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
+                {filteredRepos.length === 0 && (
+                  <p className="text-xs text-gray-500 px-3 py-2">No repos match &ldquo;{repoSearch}&rdquo;.</p>
+                )}
+                {filteredRepos.map((repo) => {
+                  const has = existingRepos.has(repo);
+                  return (
+                    <RepoCheckRow
+                      key={repo}
+                      repo={repo}
+                      checked={!has && selectedRepos.has(repo)}
+                      onToggle={() => toggleRepo(repo)}
+                      disabled={has}
+                      note={has ? "Has access" : undefined}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <p className="text-xs text-gray-500">Collaborators get write (push) access once they accept.</p>
+          <button type="submit" hidden />
+        </form>
+      )}
+    </Modal>
   );
 }

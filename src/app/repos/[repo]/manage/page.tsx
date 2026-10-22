@@ -5,27 +5,31 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useToast } from "@/components/Toast";
-import { SecretModal } from "@/components/SecretModal";
-import { DeleteSecretModal } from "@/components/DeleteSecretModal";
-import { RevokeInviteModal } from "@/components/RevokeInviteModal";
-import { VariableModal } from "@/components/VariableModal";
-import { DeleteConfirmModal } from "@/components/DeleteConfirmModal";
+import { EntryModal, EntryKind } from "@/components/EntryModal";
+import { EntryList, Entry } from "@/components/EntryList";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { CreateEnvironmentModal } from "@/components/CreateEnvironmentModal";
+import { AddModal, AddResult } from "@/components/AddModal";
+import { DeployKeyModal } from "@/components/DeployKeyModal";
+import { RepoSettingsPanel } from "@/components/RepoSettingsPanel";
+import { Button, EmptyState, ErrorState, ListSkeleton, Tabs, CountBadge, buttonClass } from "@/components/ui";
+import {
+  ChevronLeftIcon,
+  ExternalLinkIcon,
+  KeyIcon,
+  MailIcon,
+  PlusIcon,
+  ServerIcon,
+  TrashIcon,
+  UserPlusIcon,
+  UsersIcon,
+  WarningIcon,
+} from "@/components/icons";
+import { postJson } from "@/lib/api";
+import { formatDate, plural, timeAgo } from "@/lib/format";
+import { useUrlState } from "@/lib/useUrlState";
 
 // ── Types ───────────────────────────────────────────────────────────
-
-interface Secret {
-  name: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface Variable {
-  name: string;
-  value: string;
-  created_at: string;
-  updated_at: string;
-}
 
 interface Environment {
   id: number;
@@ -39,128 +43,88 @@ interface PendingInvitation {
   username: string;
   avatarUrl: string;
   createdAt: string;
+  expired: boolean;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────
-
-const formatDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-
-function SectionHeading({
-  title,
-  count,
-  children,
-}: {
+interface DeployKey {
+  id: number;
   title: string;
-  count?: number;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between mb-4">
-      <div className="flex items-center gap-2">
-        <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-          {title}
-        </h2>
-        {count !== undefined && (
-          <span className="px-2 py-0.5 text-xs font-medium bg-gray-700/60 text-gray-400 border border-gray-700 rounded-full">
-            {count}
-          </span>
-        )}
-      </div>
-      {children}
-    </div>
-  );
+  key: string;
+  readOnly: boolean;
+  createdAt: string;
+  addedBy: string | null;
+  lastUsed: string | null;
 }
 
-function ListSkeleton({ rows = 3 }: { rows?: number }) {
-  return (
-    <div className="animate-pulse space-y-3">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div
-          key={i}
-          className="bg-gray-800/50 rounded-xl p-4 flex items-center gap-4"
-        >
-          <div className="flex-1 space-y-2">
-            <div className="h-4 w-48 bg-gray-700 rounded" />
-            <div className="h-3 w-32 bg-gray-700/60 rounded" />
-          </div>
-          <div className="h-8 w-20 bg-gray-700 rounded-lg" />
-          <div className="h-8 w-20 bg-gray-700 rounded-lg" />
-        </div>
-      ))}
-    </div>
-  );
+interface RepoInfo {
+  name: string;
+  private: boolean;
+  url: string;
+  description: string | null;
+  archived: boolean;
 }
 
-function EmptyState({
-  icon,
-  text,
-  sub,
-}: {
-  icon: React.ReactNode;
-  text: string;
-  sub?: string;
-}) {
-  return (
-    <div className="text-center py-10">
-      <div className="w-12 h-12 mx-auto text-gray-600 mb-3">{icon}</div>
-      <p className="text-gray-400 font-medium text-sm">{text}</p>
-      {sub && <p className="text-gray-500 text-xs mt-1">{sub}</p>}
-    </div>
-  );
+interface TeamMember {
+  username: string;
+  avatarUrl: string;
+  profileUrl: string;
+  repos: string[];
 }
 
-// ── Secret icons ────────────────────────────────────────────────────
+type Tab = "secrets" | "variables" | "environments" | "access" | "settings";
 
-const KeyIcon = () => (
-  <svg
-    className="w-4.5 h-4.5 text-amber-400"
-    fill="none"
-    viewBox="0 0 24 24"
-    stroke="currentColor"
-    strokeWidth={2}
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
-    />
-  </svg>
-);
+type EntryModalState = {
+  kind: EntryKind;
+  mode: "create" | "update";
+  env?: string;
+  name?: string;
+  value?: string;
+} | null;
 
-const VariableIcon = () => (
-  <svg
-    className="w-4.5 h-4.5 text-blue-400"
-    fill="none"
-    viewBox="0 0 24 24"
-    stroke="currentColor"
-    strokeWidth={2}
-  >
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"
-    />
-  </svg>
-);
+type ConfirmState = {
+  title: string;
+  message: string;
+  itemName: string;
+  confirmLabel?: string;
+  action: () => Promise<void>;
+  onSuccess: () => void;
+} | null;
 
-const PlusIcon = () => (
-  <svg
-    className="w-4 h-4"
-    fill="none"
-    viewBox="0 0 24 24"
-    stroke="currentColor"
-    strokeWidth={2}
-  >
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-  </svg>
-);
+/** Small fetch-into-state helper: list + loading + error, with a reload function. */
+function useList<T>(url: string | null, key: string) {
+  const [items, setItems] = useState<T[]>([]);
+  const [loading, setLoading] = useState(Boolean(url));
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<number | null>(null);
+
+  const reload = useCallback(async () => {
+    if (!url) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(url);
+      setStatus(res.status);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to load");
+      setItems(data[key] ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load");
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [url, key]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  return { items, setItems, loading, error, status, reload };
+}
 
 // ── Main Page ───────────────────────────────────────────────────────
 
@@ -169,1102 +133,617 @@ export default function RepoManagePage() {
   const isAdmin = session?.user?.role === "admin";
   const params = useParams<{ repo: string }>();
   const repo = decodeURIComponent(params.repo);
+  const r = encodeURIComponent(repo);
   const { showToast } = useToast();
 
-  // ── Repo Secrets ──────────────────────────────────────────────────
-  const [secrets, setSecrets] = useState<Secret[]>([]);
-  const [secretsLoading, setSecretsLoading] = useState(true);
-  const [secretsError, setSecretsError] = useState<string | null>(null);
-  const [accessDenied, setAccessDenied] = useState(false);
+  const [tab, setTab] = useUrlState<Tab>("tab", "secrets");
+  const [envParam, setEnvParam] = useUrlState("env", "");
 
-  const [secretModal, setSecretModal] = useState<{
-    open: boolean;
-    mode: "create" | "update";
-    secretName?: string;
-    env?: string;
-  }>({ open: false, mode: "create" });
+  // ── Data ──────────────────────────────────────────────────────────
+  const secrets = useList<Entry>(`/api/secrets?repo=${r}`, "secrets");
+  const variables = useList<Entry>(`/api/variables?repo=${r}`, "variables");
+  const environments = useList<Environment>(`/api/environments?repo=${r}`, "environments");
+  const invitations = useList<PendingInvitation>(`/api/repos/invitations?repo=${r}`, "invitations");
+  // Only fetched when the Access tab is open
+  const deployKeys = useList<DeployKey>(tab === "access" ? `/api/deploy-keys?repo=${r}` : null, "keys");
 
-  const [deleteSecretModal, setDeleteSecretModal] = useState<{
-    open: boolean;
-    secretName: string;
-  }>({ open: false, secretName: "" });
+  // Repo metadata + collaborators come from the cached team/repo data
+  const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
+  const [team, setTeam] = useState<TeamMember[] | null>(null);
+  const [allRepos, setAllRepos] = useState<string[]>([]);
+  const [cachedAt, setCachedAt] = useState<string | null>(null);
 
-  // ── Repo Variables ────────────────────────────────────────────────
-  const [variables, setVariables] = useState<Variable[]>([]);
-  const [variablesLoading, setVariablesLoading] = useState(true);
-  const [variablesError, setVariablesError] = useState<string | null>(null);
-
-  const [variableModal, setVariableModal] = useState<{
-    open: boolean;
-    mode: "create" | "update";
-    variableName?: string;
-    variableValue?: string;
-    env?: string;
-  }>({ open: false, mode: "create" });
-
-  const [deleteVariableModal, setDeleteVariableModal] = useState<{
-    open: boolean;
-    variableName: string;
-    env?: string;
-  }>({ open: false, variableName: "" });
-
-  // ── Environments ──────────────────────────────────────────────────
-  const [environments, setEnvironments] = useState<Environment[]>([]);
-  const [environmentsLoading, setEnvironmentsLoading] = useState(true);
-  const [environmentsError, setEnvironmentsError] = useState<string | null>(null);
-  const [selectedEnv, setSelectedEnv] = useState<string>("");
-  const [createEnvModal, setCreateEnvModal] = useState(false);
-  const [deleteEnvModal, setDeleteEnvModal] = useState(false);
-
-  // ── Environment Secrets & Variables ───────────────────────────────
-  const [envSecrets, setEnvSecrets] = useState<Secret[]>([]);
-  const [envSecretsLoading, setEnvSecretsLoading] = useState(false);
-  const [envVariables, setEnvVariables] = useState<Variable[]>([]);
-  const [envVariablesLoading, setEnvVariablesLoading] = useState(false);
-
-  // ── Invitations ───────────────────────────────────────────────────
-  const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
-  const [invitationsLoading, setInvitationsLoading] = useState(true);
-  const [revokeModal, setRevokeModal] = useState<{
-    open: boolean;
-    username: string;
-    invitationId: number;
-  }>({ open: false, username: "", invitationId: 0 });
-
-  // ── Data fetching ─────────────────────────────────────────────────
-
-  const fetchSecrets = useCallback(async () => {
-    setSecretsLoading(true);
-    setSecretsError(null);
-    setAccessDenied(false);
+  const fetchMeta = useCallback(async () => {
     try {
-      const res = await fetch(`/api/secrets?repo=${encodeURIComponent(repo)}`);
-      if (!res.ok) {
-        if (res.status === 403) {
-          const err = await res.json();
-          if (err.error?.includes("not a collaborator")) {
-            setAccessDenied(true);
-            return;
-          }
-        }
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to fetch secrets");
+      const [detailsRes, teamRes] = await Promise.all([fetch("/api/repos/details"), fetch("/api/team")]);
+      if (detailsRes.ok) {
+        const d = await detailsRes.json();
+        setRepoInfo(d.repos.find((x: RepoInfo) => x.name === repo) ?? null);
       }
-      const data = await res.json();
-      setSecrets(data.secrets);
-    } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Failed to load secrets";
-      setSecretsError(msg);
-    } finally {
-      setSecretsLoading(false);
+      if (teamRes.ok) {
+        const t = await teamRes.json();
+        setTeam(t.team);
+        setAllRepos(t.repos);
+        setCachedAt(t.cachedAt ?? null);
+      }
+    } catch {
+      // Header falls back to the repo name; access tab shows its own state
     }
   }, [repo]);
 
-  const fetchVariables = useCallback(async () => {
-    setVariablesLoading(true);
-    setVariablesError(null);
-    try {
-      const res = await fetch(
-        `/api/variables?repo=${encodeURIComponent(repo)}`
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to fetch variables");
-      }
-      const data = await res.json();
-      setVariables(data.variables);
-    } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Failed to load variables";
-      setVariablesError(msg);
-    } finally {
-      setVariablesLoading(false);
-    }
-  }, [repo]);
-
-  const fetchEnvironments = useCallback(async () => {
-    setEnvironmentsLoading(true);
-    setEnvironmentsError(null);
-    try {
-      const res = await fetch(
-        `/api/environments?repo=${encodeURIComponent(repo)}`
-      );
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to fetch environments");
-      }
-      const data = await res.json();
-      setEnvironments(data.environments);
-    } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Failed to load environments";
-      setEnvironmentsError(msg);
-      showToast(msg, "error");
-    } finally {
-      setEnvironmentsLoading(false);
-    }
-  }, [repo, showToast]);
-
-  const fetchInvitations = useCallback(async () => {
-    setInvitationsLoading(true);
-    try {
-      const res = await fetch(
-        `/api/repos/invitations?repo=${encodeURIComponent(repo)}`
-      );
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to fetch invitations");
-      }
-      const data = await res.json();
-      setInvitations(data.invitations);
-    } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : "Failed to load invitations";
-      showToast(msg, "error");
-    } finally {
-      setInvitationsLoading(false);
-    }
-  }, [repo, showToast]);
-
-  const fetchEnvSecrets = useCallback(
-    async (env: string) => {
-      setEnvSecretsLoading(true);
-      try {
-        const res = await fetch(
-          `/api/environments/secrets?repo=${encodeURIComponent(repo)}&env=${encodeURIComponent(env)}`
-        );
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || "Failed to fetch environment secrets");
-        }
-        const data = await res.json();
-        setEnvSecrets(data.secrets);
-      } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Failed to load environment secrets";
-        showToast(msg, "error");
-        setEnvSecrets([]);
-      } finally {
-        setEnvSecretsLoading(false);
-      }
-    },
-    [repo, showToast]
-  );
-
-  const fetchEnvVariables = useCallback(
-    async (env: string) => {
-      setEnvVariablesLoading(true);
-      try {
-        const res = await fetch(
-          `/api/environments/variables?repo=${encodeURIComponent(repo)}&env=${encodeURIComponent(env)}`
-        );
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(
-            err.error || "Failed to fetch environment variables"
-          );
-        }
-        const data = await res.json();
-        setEnvVariables(data.variables);
-      } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Failed to load environment variables";
-        showToast(msg, "error");
-        setEnvVariables([]);
-      } finally {
-        setEnvVariablesLoading(false);
-      }
-    },
-    [repo, showToast]
-  );
-
-  // Initial load
   useEffect(() => {
-    fetchSecrets();
-    fetchVariables();
-    fetchEnvironments();
-    fetchInvitations();
-  }, [fetchSecrets, fetchVariables, fetchEnvironments, fetchInvitations]);
+    fetchMeta();
+  }, [fetchMeta]);
 
-  // When selected environment changes, fetch its secrets & variables
-  useEffect(() => {
-    if (selectedEnv) {
-      fetchEnvSecrets(selectedEnv);
-      fetchEnvVariables(selectedEnv);
-    } else {
-      setEnvSecrets([]);
-      setEnvVariables([]);
-    }
-  }, [selectedEnv, fetchEnvSecrets, fetchEnvVariables]);
+  // Selected environment: from URL if valid, else the first one
+  const envNames = environments.items.map((e) => e.name);
+  const selectedEnv = envNames.includes(envParam) ? envParam : (envNames[0] ?? "");
+  const envQuery = selectedEnv ? `repo=${r}&env=${encodeURIComponent(selectedEnv)}` : null;
+  const envSecrets = useList<Entry>(envQuery && `/api/environments/secrets?${envQuery}`, "secrets");
+  const envVariables = useList<Entry>(envQuery && `/api/environments/variables?${envQuery}`, "variables");
 
-  // ── Delete helpers ────────────────────────────────────────────────
+  const collaborators = (team ?? []).filter((m) => m.repos.includes(repo));
 
-  const handleDeleteVariable = async (name: string, env?: string) => {
-    const url = env
-      ? "/api/environments/variables/delete"
-      : "/api/variables/delete";
-    const body: Record<string, string> = { repo, name };
-    if (env) body.env = env;
+  // ── Modals ────────────────────────────────────────────────────────
+  const [entryModal, setEntryModal] = useState<EntryModalState>(null);
+  const [confirm, setConfirm] = useState<ConfirmState>(null);
+  const [createEnvOpen, setCreateEnvOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [deployKeyOpen, setDeployKeyOpen] = useState(false);
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to delete variable");
-    }
+  const reloadEntries = (kind: EntryKind, env?: string) => {
+    if (env) (kind === "secret" ? envSecrets : envVariables).reload();
+    else (kind === "secret" ? secrets : variables).reload();
   };
 
-  const handleDeleteEnvSecret = async (name: string, env: string) => {
-    const res = await fetch("/api/environments/secrets/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repo, env, name }),
+  const askDeleteEntry = (kind: EntryKind, item: Entry, env?: string) => {
+    const noun = kind === "secret" ? "secret" : "variable";
+    const path = `${env ? "/api/environments" : "/api"}/${noun}s/delete`;
+    setConfirm({
+      title: `Delete ${noun}`,
+      message: env ? `Delete the ${env} ${noun}` : `Delete the repository ${noun}`,
+      itemName: item.name,
+      action: () => postJson(path, env ? { repo, env, name: item.name } : { repo, name: item.name }, `Failed to delete ${noun}`),
+      onSuccess: () => {
+        showToast(`Deleted ${item.name}`, "success");
+        reloadEntries(kind, env);
+      },
     });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to delete secret");
-    }
   };
 
-  const handleDeleteEnvironment = async () => {
-    const res = await fetch("/api/environments/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repo, name: selectedEnv }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error || "Failed to delete environment");
-    }
-  };
+  const entryProps = (kind: EntryKind, list: ReturnType<typeof useList<Entry>>, env?: string) => ({
+    kind,
+    items: list.items,
+    loading: list.loading,
+    error: list.error,
+    onRetry: list.reload,
+    onAdd: () => setEntryModal({ kind, mode: "create", env }),
+    onEdit: (item: Entry) => setEntryModal({ kind, mode: "update", env, name: item.name, value: item.value }),
+    onDelete: isAdmin ? (item: Entry) => askDeleteEntry(kind, item, env) : undefined,
+  });
 
   // ── Access denied ─────────────────────────────────────────────────
+  const accessDenied = secrets.status === 403 && secrets.error?.includes("not a collaborator");
 
-  if (!secretsLoading && accessDenied) {
+  const backLink = (
+    <Link
+      href="/repos"
+      className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-gray-200 transition-colors mb-3"
+    >
+      <ChevronLeftIcon />
+      Repositories
+    </Link>
+  );
+
+  if (accessDenied) {
     return (
       <main className="max-w-5xl mx-auto px-4 py-8">
-        <div className="mb-8">
-          <Link
-            href="/repos"
-            className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors mb-4"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-            Back to Repos
-          </Link>
-        </div>
-        <div className="text-center py-16">
-          <svg
-            className="w-16 h-16 mx-auto text-yellow-500/50 mb-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
-            />
-          </svg>
-          <h2 className="text-xl font-semibold text-gray-300 mb-2">
-            You don&apos;t have access to this repository
-          </h2>
-          <p className="text-gray-500 mb-4">
-            You are not a collaborator on this repository.
-          </p>
-          <Link
-            href="/repos"
-            className="text-sm text-blue-400 hover:text-blue-300 underline"
-          >
-            Back to Repos
-          </Link>
-        </div>
+        {backLink}
+        <EmptyState
+          icon={<WarningIcon />}
+          title="You don't have access to this repository"
+          description="You're not a collaborator on it. Ask an admin to add you."
+          action={<Link href="/repos" className={buttonClass("secondary", "sm")}>Back to repositories</Link>}
+        />
       </main>
     );
   }
 
   // ── Render ────────────────────────────────────────────────────────
-
   return (
     <main className="max-w-5xl mx-auto px-4 py-8">
-      {/* ── Header ───────────────────────────────────────────────── */}
-      <div className="mb-8">
-        <Link
-          href="/repos"
-          className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-200 transition-colors mb-4"
+      {backLink}
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-6">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl sm:text-3xl font-bold break-all">{repo}</h1>
+            {repoInfo && (
+              <span
+                className={`px-2 py-0.5 rounded-full text-[11px] font-medium border ${
+                  repoInfo.private
+                    ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                    : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                }`}
+              >
+                {repoInfo.private ? "Private" : "Public"}
+              </span>
+            )}
+          </div>
+          {repoInfo?.description && <p className="text-gray-400 text-sm mt-1">{repoInfo.description}</p>}
+        </div>
+        <a
+          href={repoInfo?.url ?? `https://github.com/altersquare/${repo}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${buttonClass("secondary", "sm")} shrink-0 self-start`}
         >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-          Back to Repos
-        </Link>
-        <h1 className="text-3xl font-bold">{repo}</h1>
-        <p className="text-gray-400 text-sm mt-1">
-          Manage secrets, variables &amp; environments
-        </p>
+          Open on GitHub
+          <ExternalLinkIcon className="w-3.5 h-3.5" />
+        </a>
       </div>
 
-      {/* ── Pending Invitations ──────────────────────────────────── */}
-      {invitationsLoading && (
-        <div className="mb-8 animate-pulse space-y-3">
-          <div className="h-5 w-44 bg-gray-700 rounded mb-3" />
-          {Array.from({ length: 2 }).map((_, i) => (
-            <div
-              key={i}
-              className="bg-gray-800/50 rounded-xl p-3 flex items-center gap-3"
-            >
-              <div className="w-8 h-8 bg-gray-700 rounded-full" />
-              <div className="flex-1 space-y-1.5">
-                <div className="h-3.5 w-28 bg-gray-700 rounded" />
-                <div className="h-3 w-20 bg-gray-700/60 rounded" />
-              </div>
-              <div className="h-7 w-16 bg-gray-700 rounded-lg" />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!invitationsLoading && invitations.length > 0 && (
-        <div className="mb-8">
-          <div className="flex items-center gap-2 mb-3">
-            <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
-              Pending Invitations
-            </h2>
-            <span className="px-2 py-0.5 text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20 rounded-full">
-              {invitations.length}
-            </span>
-          </div>
-          <div className="space-y-2">
-            {invitations.map((inv, idx) => (
-              <div
-                key={inv.id}
-                className="bg-gray-800/50 border border-gray-800 rounded-xl p-3 flex items-center gap-3 hover:bg-gray-800/80 transition-colors animate-fade-in-up"
-                style={{ animationDelay: `${idx * 20}ms` }}
-              >
-                <img
-                  src={inv.avatarUrl}
-                  alt={inv.username}
-                  className="w-8 h-8 rounded-full border border-gray-700"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm truncate">{inv.username}</p>
-                  <p className="text-gray-500 text-xs mt-0.5">
-                    Sent {formatDate(inv.createdAt)}
-                  </p>
-                </div>
-                <button
-                  onClick={() =>
-                    setRevokeModal({
-                      open: true,
-                      username: inv.username,
-                      invitationId: inv.id,
-                    })
-                  }
-                  disabled={!isAdmin}
-                  title={!isAdmin ? "Admin only" : undefined}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border ${
-                    isAdmin
-                      ? "text-red-400 bg-red-500/10 hover:bg-red-500/20 border-red-500/20"
-                      : "text-red-400/40 bg-red-500/5 border-red-500/10 cursor-not-allowed opacity-50"
-                  }`}
-                >
-                  Revoke
+      {repoInfo?.archived && (
+        <div className="mb-6 rounded-xl border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-200 flex items-start gap-2">
+          <WarningIcon className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+          <span>
+            This repository is archived and read-only — GitHub will reject changes to secrets, variables and
+            environments.
+            {isAdmin && (
+              <>
+                {" "}
+                <button type="button" onClick={() => setTab("settings")} className="underline hover:text-white cursor-pointer">
+                  Unarchive in Settings
                 </button>
-              </div>
-            ))}
-          </div>
+              </>
+            )}
+          </span>
         </div>
       )}
 
-      {/* ── Repository Secrets ───────────────────────────────────── */}
-      <section className="mb-10">
-        <SectionHeading title="Repository Secrets" count={secrets.length}>
-          <button
-            onClick={() =>
-              setSecretModal({ open: true, mode: "create" })
-            }
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors"
-          >
-            <PlusIcon />
-            Add Secret
-          </button>
-        </SectionHeading>
+      <Tabs<Tab>
+        active={tab}
+        onChange={setTab}
+        tabs={[
+          { id: "secrets", label: "Secrets", count: secrets.loading || secrets.error ? undefined : secrets.items.length },
+          { id: "variables", label: "Variables", count: variables.loading || variables.error ? undefined : variables.items.length },
+          {
+            id: "environments",
+            label: "Environments",
+            count: environments.loading || environments.error ? undefined : environments.items.length,
+          },
+          {
+            id: "access",
+            label: "Access",
+            count: team ? collaborators.length : undefined,
+            badge:
+              invitations.items.length > 0 ? (
+                <span title={`${plural(invitations.items.length, "pending invitation")}`}>
+                  <CountBadge count={invitations.items.length} tone="amber" />
+                </span>
+              ) : undefined,
+          },
+          ...(isAdmin ? [{ id: "settings" as const, label: "Settings" }] : []),
+        ]}
+      />
 
-        {secretsLoading && <ListSkeleton />}
-
-        {secretsError && !secretsLoading && (
-          <div className="text-center py-8">
-            <p className="text-red-400 text-sm mb-2">{secretsError}</p>
-            <button
-              onClick={fetchSecrets}
-              className="text-sm text-blue-400 hover:text-blue-300 underline"
-            >
-              Try again
+      {tab === "secrets" && (
+        <>
+          <p className="text-sm text-gray-500 mb-4">
+            Repository-wide Actions secrets, available to every workflow run. For values that differ per deployment,
+            use{" "}
+            <button type="button" onClick={() => setTab("environments")} className="text-blue-400 hover:underline cursor-pointer">
+              environments
             </button>
-          </div>
-        )}
+            .
+          </p>
+          <EntryList {...entryProps("secret", secrets)} />
+        </>
+      )}
 
-        {!secretsLoading && !secretsError && secrets.length === 0 && (
-          <EmptyState
-            icon={
-              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-              </svg>
-            }
-            text="No secrets yet"
-            sub="Add your first Actions secret to get started."
-          />
-        )}
+      {tab === "variables" && (
+        <>
+          <p className="text-sm text-gray-500 mb-4">
+            Repository-wide Actions variables (plain text). Environment variables with the same name take precedence.
+          </p>
+          <EntryList {...entryProps("variable", variables)} />
+        </>
+      )}
 
-        {!secretsLoading && !secretsError && secrets.length > 0 && (
-          <div className="space-y-2">
-            {secrets.map((secret, idx) => (
-              <div
-                key={secret.name}
-                className="bg-gray-800/50 border border-gray-800 rounded-xl p-4 flex items-start sm:items-center gap-4 hover:bg-gray-800/80 transition-colors animate-fade-in-up"
-                style={{ animationDelay: `${idx * 20}ms` }}
-              >
-                <div className="shrink-0 mt-0.5 sm:mt-0">
-                  <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                    <KeyIcon />
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-mono font-medium text-sm truncate">
-                    {secret.name}
-                  </p>
-                  <p className="text-gray-500 text-xs mt-1">
-                    Updated {formatDate(secret.updated_at)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() =>
-                      setSecretModal({
-                        open: true,
-                        mode: "update",
-                        secretName: secret.name,
-                      })
-                    }
-                    className="px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-700/60 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors"
-                  >
-                    Update
-                  </button>
-                  <button
-                    onClick={() =>
-                      setDeleteSecretModal({
-                        open: true,
-                        secretName: secret.name,
-                      })
-                    }
-                    disabled={!isAdmin}
-                    title={!isAdmin ? "Admin only" : undefined}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border ${
-                      isAdmin
-                        ? "text-red-400 bg-red-500/10 hover:bg-red-500/20 border-red-500/20"
-                        : "text-red-400/40 bg-red-500/5 border-red-500/10 cursor-not-allowed opacity-50"
-                    }`}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* ── Repository Variables ──────────────────────────────────── */}
-      <section className="mb-10">
-        <SectionHeading title="Repository Variables" count={variables.length}>
-          <button
-            onClick={() =>
-              setVariableModal({ open: true, mode: "create" })
-            }
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors"
-          >
-            <PlusIcon />
-            Add Variable
-          </button>
-        </SectionHeading>
-
-        {variablesLoading && <ListSkeleton />}
-
-        {variablesError && !variablesLoading && (
-          <div className="text-center py-8">
-            <p className="text-red-400 text-sm mb-2">{variablesError}</p>
-            <button
-              onClick={fetchVariables}
-              className="text-sm text-blue-400 hover:text-blue-300 underline"
-            >
-              Try again
-            </button>
-          </div>
-        )}
-
-        {!variablesLoading && !variablesError && variables.length === 0 && (
-          <EmptyState
-            icon={
-              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
-              </svg>
-            }
-            text="No variables yet"
-            sub="Add your first Actions variable to get started."
-          />
-        )}
-
-        {!variablesLoading && !variablesError && variables.length > 0 && (
-          <div className="space-y-2">
-            {variables.map((v, idx) => (
-              <div
-                key={v.name}
-                className="bg-gray-800/50 border border-gray-800 rounded-xl p-4 flex items-start sm:items-center gap-4 hover:bg-gray-800/80 transition-colors animate-fade-in-up"
-                style={{ animationDelay: `${idx * 20}ms` }}
-              >
-                <div className="shrink-0 mt-0.5 sm:mt-0">
-                  <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-                    <VariableIcon />
-                  </div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-mono font-medium text-sm truncate">
-                    {v.name}
-                  </p>
-                  <p className="text-gray-400 text-xs mt-1 font-mono truncate max-w-md">
-                    {v.value || <span className="italic text-gray-600">(empty)</span>}
-                  </p>
-                  <p className="text-gray-500 text-xs mt-0.5">
-                    Updated {formatDate(v.updated_at)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() =>
-                      setVariableModal({
-                        open: true,
-                        mode: "update",
-                        variableName: v.name,
-                        variableValue: v.value,
-                      })
-                    }
-                    className="px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-700/60 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors"
-                  >
-                    Update
-                  </button>
-                  <button
-                    onClick={() =>
-                      setDeleteVariableModal({
-                        open: true,
-                        variableName: v.name,
-                      })
-                    }
-                    disabled={!isAdmin}
-                    title={!isAdmin ? "Admin only" : undefined}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border ${
-                      isAdmin
-                        ? "text-red-400 bg-red-500/10 hover:bg-red-500/20 border-red-500/20"
-                        : "text-red-400/40 bg-red-500/5 border-red-500/10 cursor-not-allowed opacity-50"
-                    }`}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* ── Environments ─────────────────────────────────────────── */}
-      <section className="mb-10">
-        <SectionHeading
-          title="Environments"
-          count={environments.length}
-        >
-          <button
-            onClick={() => setCreateEnvModal(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs font-medium rounded-lg transition-colors"
-          >
-            <PlusIcon />
-            New Environment
-          </button>
-        </SectionHeading>
-
-        {environmentsLoading && (
-          <div className="animate-pulse h-10 bg-gray-800/50 rounded-lg" />
-        )}
-
-        {!environmentsLoading && environments.length === 0 && !environmentsError && (
-          <EmptyState
-            icon={
-              <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z" />
-              </svg>
-            }
-            text="No environments yet"
-            sub="Create an environment to scope secrets and variables."
-          />
-        )}
-
-        {environmentsError && !environmentsLoading && (
-          <div className="text-center py-8">
-            <p className="text-red-400 text-sm mb-2">{environmentsError}</p>
-            <button
-              onClick={fetchEnvironments}
-              className="text-sm text-blue-400 hover:text-blue-300 underline"
-            >
-              Try again
-            </button>
-          </div>
-        )}
-
-        {!environmentsLoading && !environmentsError && environments.length > 0 && (
-          <>
-            {/* Env selector */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className="relative flex-1 max-w-xs">
-                <select
-                  value={selectedEnv}
-                  onChange={(e) => setSelectedEnv(e.target.value)}
-                  className="appearance-none w-full px-4 py-2.5 pr-9 bg-gray-800/50 border border-gray-700 rounded-lg text-sm text-gray-100 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors cursor-pointer"
-                >
-                  <option value="">Select an environment…</option>
-                  {environments.map((env) => (
-                    <option key={env.id} value={env.name}>
+      {tab === "environments" && (
+        <section>
+          {environments.loading ? (
+            <ListSkeleton rows={2} />
+          ) : environments.error ? (
+            <ErrorState message={environments.error} onRetry={environments.reload} />
+          ) : environments.items.length === 0 ? (
+            <EmptyState
+              icon={<ServerIcon />}
+              title="No environments yet"
+              description="Environments (e.g. production, staging) hold secrets and variables that only apply to that deployment target."
+              action={
+                <Button variant="primary" size="sm" onClick={() => setCreateEnvOpen(true)}>
+                  <PlusIcon className="w-3.5 h-3.5" />
+                  New environment
+                </Button>
+              }
+            />
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2 mb-6" role="tablist" aria-label="Environment">
+                {environments.items.map((env) => {
+                  const active = env.name === selectedEnv;
+                  return (
+                    <button
+                      key={env.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setEnvParam(env.name)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm border transition-colors cursor-pointer ${
+                        active
+                          ? "bg-blue-500/15 border-blue-500/50 text-blue-200"
+                          : "bg-gray-800/50 border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500"
+                      }`}
+                    >
+                      <ServerIcon className="w-3.5 h-3.5" />
                       {env.name}
-                    </option>
-                  ))}
-                </select>
-                <svg
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => setCreateEnvOpen(true)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-sm border border-dashed border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors cursor-pointer"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
+                  <PlusIcon className="w-3.5 h-3.5" />
+                  New
+                </button>
               </div>
 
-              {selectedEnv && isAdmin && (
-                <button
-                  onClick={() => setDeleteEnvModal(true)}
-                  className="px-3 py-2.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors"
-                >
-                  Delete Environment
-                </button>
+              {selectedEnv && (
+                <div className="space-y-8">
+                  <div className="flex items-center justify-between gap-3 -mt-2">
+                    <p className="text-sm text-gray-500">
+                      Values below apply only to jobs that use{" "}
+                      <code className="text-gray-300 bg-gray-800 px-1 py-0.5 rounded text-xs">environment: {selectedEnv}</code>{" "}
+                      and override repository values with the same name.
+                    </p>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost-danger"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() =>
+                          setConfirm({
+                            title: "Delete environment",
+                            message: "Delete the environment and all of its secrets and variables:",
+                            itemName: selectedEnv,
+                            confirmLabel: "Delete environment",
+                            action: () =>
+                              postJson("/api/environments/delete", { repo, name: selectedEnv }, "Failed to delete environment"),
+                            onSuccess: () => {
+                              showToast(`Deleted environment ${selectedEnv}`, "success");
+                              setEnvParam("");
+                              environments.reload();
+                            },
+                          })
+                        }
+                      >
+                        <TrashIcon className="w-3.5 h-3.5" />
+                        Delete environment
+                      </Button>
+                    )}
+                  </div>
+                  <EntryList title="Secrets" {...entryProps("secret", envSecrets, selectedEnv)} />
+                  <EntryList title="Variables" {...entryProps("variable", envVariables, selectedEnv)} />
+                </div>
               )}
-              {selectedEnv && !isAdmin && (
-                <button
-                  disabled
-                  title="Admin only"
-                  className="px-3 py-2.5 text-xs font-medium text-red-400/40 bg-red-500/5 border border-red-500/10 rounded-lg cursor-not-allowed opacity-50"
-                >
-                  Delete Environment
-                </button>
+            </>
+          )}
+        </section>
+      )}
+
+      {tab === "access" && (
+        <div className="space-y-10">
+          {/* Collaborators */}
+          <section>
+            <div className="flex items-center gap-3 mb-3">
+              <h3 className="text-sm font-semibold text-gray-300 mr-auto">
+                Collaborators {team && <span className="text-gray-500 font-normal">({collaborators.length})</span>}
+              </h3>
+              {isAdmin && (
+                <Button variant="primary" size="sm" onClick={() => setAddOpen(true)} disabled={!team}>
+                  <UserPlusIcon className="w-3.5 h-3.5" />
+                  Add collaborator
+                </Button>
               )}
             </div>
-
-            {/* Content for selected environment */}
-            {!selectedEnv && (
-              <div className="text-center py-8">
-                <p className="text-gray-500 text-sm">
-                  Select an environment above to manage its secrets and
-                  variables.
-                </p>
-              </div>
-            )}
-
-            {selectedEnv && (
-              <div className="space-y-8 border-l-2 border-gray-800 pl-4 ml-2">
-                {/* ── Env Secrets ───────────────────────────────── */}
-                <div>
-                  <SectionHeading
-                    title={`${selectedEnv} Secrets`}
-                    count={envSecrets.length}
-                  >
-                    <button
-                      onClick={() =>
-                        setSecretModal({
-                          open: true,
-                          mode: "create",
-                          env: selectedEnv,
-                        })
-                      }
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors"
-                    >
-                      <PlusIcon />
-                      Add Secret
-                    </button>
-                  </SectionHeading>
-
-                  {envSecretsLoading && <ListSkeleton rows={2} />}
-
-                  {!envSecretsLoading && envSecrets.length === 0 && (
-                    <EmptyState
-                      icon={
-                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                        </svg>
-                      }
-                      text="No environment secrets yet"
-                    />
-                  )}
-
-                  {!envSecretsLoading && envSecrets.length > 0 && (
-                    <div className="space-y-2">
-                      {envSecrets.map((secret, idx) => (
-                        <div
-                          key={secret.name}
-                          className="bg-gray-800/50 border border-gray-800 rounded-xl p-4 flex items-start sm:items-center gap-4 hover:bg-gray-800/80 transition-colors animate-fade-in-up"
-                          style={{ animationDelay: `${idx * 20}ms` }}
-                        >
-                          <div className="shrink-0 mt-0.5 sm:mt-0">
-                            <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
-                              <KeyIcon />
-                            </div>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-mono font-medium text-sm truncate">
-                              {secret.name}
-                            </p>
-                            <p className="text-gray-500 text-xs mt-1">
-                              Updated {formatDate(secret.updated_at)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <button
-                              onClick={() =>
-                                setSecretModal({
-                                  open: true,
-                                  mode: "update",
-                                  secretName: secret.name,
-                                  env: selectedEnv,
-                                })
-                              }
-                              className="px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-700/60 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors"
-                            >
-                              Update
-                            </button>
-                            <button
-                              onClick={() =>
-                                setDeleteSecretModal({
-                                  open: true,
-                                  secretName: `env:${selectedEnv}:${secret.name}`,
-                                })
-                              }
-                              disabled={!isAdmin}
-                              title={!isAdmin ? "Admin only" : undefined}
-                              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border ${
-                                isAdmin
-                                  ? "text-red-400 bg-red-500/10 hover:bg-red-500/20 border-red-500/20"
-                                  : "text-red-400/40 bg-red-500/5 border-red-500/10 cursor-not-allowed opacity-50"
-                              }`}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+            {!team ? (
+              <ListSkeleton rows={2} />
+            ) : collaborators.length === 0 ? (
+              <EmptyState compact icon={<UsersIcon />} title="No collaborators besides the owner" />
+            ) : (
+              <ul className="divide-y divide-gray-800 border border-gray-800 rounded-xl overflow-hidden">
+                {collaborators.map((m) => (
+                  <li key={m.username} className="flex items-center gap-3 px-4 py-2.5 bg-gray-900/40">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={m.avatarUrl} alt="" className="w-8 h-8 rounded-full ring-1 ring-gray-700" />
+                    <div className="flex-1 min-w-0">
+                      <a
+                        href={m.profileUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium hover:text-blue-400"
+                      >
+                        {m.username}
+                      </a>
+                      {m.repos.length > 1 && (
+                        <p className="text-[11px] text-gray-500">
+                          Also on{" "}
+                          <Link href={`/?q=${encodeURIComponent(m.username)}`} className="hover:text-gray-300 underline decoration-dotted">
+                            {plural(m.repos.length - 1, "other repo")}
+                          </Link>
+                        </p>
+                      )}
                     </div>
-                  )}
-                </div>
-
-                {/* ── Env Variables ─────────────────────────────── */}
-                <div>
-                  <SectionHeading
-                    title={`${selectedEnv} Variables`}
-                    count={envVariables.length}
-                  >
-                    <button
-                      onClick={() =>
-                        setVariableModal({
-                          open: true,
-                          mode: "create",
-                          env: selectedEnv,
-                        })
-                      }
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors"
-                    >
-                      <PlusIcon />
-                      Add Variable
-                    </button>
-                  </SectionHeading>
-
-                  {envVariablesLoading && <ListSkeleton rows={2} />}
-
-                  {!envVariablesLoading && envVariables.length === 0 && (
-                    <EmptyState
-                      icon={
-                        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
-                        </svg>
-                      }
-                      text="No environment variables yet"
-                    />
-                  )}
-
-                  {!envVariablesLoading && envVariables.length > 0 && (
-                    <div className="space-y-2">
-                      {envVariables.map((v, idx) => (
-                        <div
-                          key={v.name}
-                          className="bg-gray-800/50 border border-gray-800 rounded-xl p-4 flex items-start sm:items-center gap-4 hover:bg-gray-800/80 transition-colors animate-fade-in-up"
-                          style={{ animationDelay: `${idx * 20}ms` }}
-                        >
-                          <div className="shrink-0 mt-0.5 sm:mt-0">
-                            <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-                              <VariableIcon />
-                            </div>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-mono font-medium text-sm truncate">
-                              {v.name}
-                            </p>
-                            <p className="text-gray-400 text-xs mt-1 font-mono truncate max-w-md">
-                              {v.value || (
-                                <span className="italic text-gray-600">
-                                  (empty)
-                                </span>
-                              )}
-                            </p>
-                            <p className="text-gray-500 text-xs mt-0.5">
-                              Updated {formatDate(v.updated_at)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <button
-                              onClick={() =>
-                                setVariableModal({
-                                  open: true,
-                                  mode: "update",
-                                  variableName: v.name,
-                                  variableValue: v.value,
-                                  env: selectedEnv,
-                                })
-                              }
-                              className="px-3 py-1.5 text-xs font-medium text-gray-300 bg-gray-700/60 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors"
-                            >
-                              Update
-                            </button>
-                            <button
-                              onClick={() =>
-                                setDeleteVariableModal({
-                                  open: true,
-                                  variableName: v.name,
-                                  env: selectedEnv,
-                                })
-                              }
-                              disabled={!isAdmin}
-                              title={!isAdmin ? "Admin only" : undefined}
-                              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors border ${
-                                isAdmin
-                                  ? "text-red-400 bg-red-500/10 hover:bg-red-500/20 border-red-500/20"
-                                  : "text-red-400/40 bg-red-500/5 border-red-500/10 cursor-not-allowed opacity-50"
-                              }`}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost-danger"
+                        size="sm"
+                        onClick={() =>
+                          setConfirm({
+                            title: "Remove collaborator",
+                            message: `Revoke access to ${repo} for`,
+                            itemName: m.username,
+                            confirmLabel: "Remove",
+                            action: () =>
+                              postJson("/api/team/remove-one", { username: m.username, repo }, "Failed to remove collaborator"),
+                            onSuccess: () => {
+                              showToast(`Removed ${m.username} from ${repo}`, "success");
+                              setTeam((prev) =>
+                                (prev ?? []).map((t) =>
+                                  t.username === m.username ? { ...t, repos: t.repos.filter((x) => x !== repo) } : t
+                                )
+                              );
+                            },
+                          })
+                        }
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
             )}
-          </>
-        )}
-      </section>
+            {cachedAt && (
+              <p className="text-[11px] text-gray-600 mt-2">
+                From the last sync ({timeAgo(cachedAt)}). Use Sync in the top bar to refresh.
+              </p>
+            )}
+          </section>
+
+          {/* Pending invitations */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-300 mb-1">
+              Pending invitations{" "}
+              {!invitations.loading && <span className="text-gray-500 font-normal">({invitations.items.length})</span>}
+            </h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Invited people get access once they accept the email from GitHub.
+            </p>
+            {invitations.loading ? (
+              <ListSkeleton rows={1} />
+            ) : invitations.error ? (
+              <ErrorState message={invitations.error} onRetry={invitations.reload} />
+            ) : invitations.items.length === 0 ? (
+              <EmptyState compact icon={<MailIcon />} title="No pending invitations" />
+            ) : (
+              <ul className="divide-y divide-gray-800 border border-gray-800 rounded-xl overflow-hidden">
+                {invitations.items.map((inv) => (
+                  <li key={inv.id} className="flex items-center gap-3 px-4 py-2.5 bg-gray-900/40">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={inv.avatarUrl} alt="" className="w-8 h-8 rounded-full ring-1 ring-gray-700" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {inv.username}
+                        {inv.expired && (
+                          <span className="ml-2 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-500/15 text-amber-400">
+                            EXPIRED
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[11px] text-gray-500" title={formatDate(inv.createdAt)}>
+                        Invited {timeAgo(inv.createdAt)}
+                      </p>
+                    </div>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost-danger"
+                        size="sm"
+                        onClick={() =>
+                          setConfirm({
+                            title: "Revoke invitation",
+                            message: `Cancel the pending invitation to ${repo} for`,
+                            itemName: inv.username,
+                            confirmLabel: "Revoke",
+                            action: () =>
+                              postJson(
+                                "/api/repos/invitations/revoke",
+                                { repo, invitationId: inv.id },
+                                "Failed to revoke invitation"
+                              ),
+                            onSuccess: () => {
+                              showToast(`Revoked invitation for ${inv.username}`, "success");
+                              invitations.setItems((prev) => prev.filter((i) => i.id !== inv.id));
+                            },
+                          })
+                        }
+                      >
+                        Revoke
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {/* Deploy keys */}
+          <section>
+            <div className="flex items-center gap-3 mb-1">
+              <h3 className="text-sm font-semibold text-gray-300 mr-auto">
+                Deploy keys{" "}
+                {!deployKeys.loading && !deployKeys.error && (
+                  <span className="text-gray-500 font-normal">({deployKeys.items.length})</span>
+                )}
+              </h3>
+              {isAdmin && (
+                <Button variant="primary" size="sm" onClick={() => setDeployKeyOpen(true)}>
+                  <PlusIcon className="w-3.5 h-3.5" />
+                  Add deploy key
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              SSH keys that can clone this repo without a user account — easy to forget when reviewing access.
+            </p>
+            {deployKeys.loading ? (
+              <ListSkeleton rows={1} />
+            ) : deployKeys.error ? (
+              <ErrorState message={deployKeys.error} onRetry={deployKeys.reload} />
+            ) : deployKeys.items.length === 0 ? (
+              <EmptyState compact icon={<KeyIcon />} title="No deploy keys" />
+            ) : (
+              <ul className="divide-y divide-gray-800 border border-gray-800 rounded-xl overflow-hidden">
+                {deployKeys.items.map((k) => (
+                  <li key={k.id} className="flex items-center gap-3 px-4 py-2.5 bg-gray-900/40">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-amber-500/10 text-amber-400">
+                      <KeyIcon className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {k.title}
+                        <span
+                          className={`ml-2 px-1.5 py-0.5 text-[10px] font-semibold rounded ${
+                            k.readOnly ? "bg-gray-700/60 text-gray-300" : "bg-red-500/15 text-red-300"
+                          }`}
+                        >
+                          {k.readOnly ? "READ-ONLY" : "READ/WRITE"}
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-gray-500 truncate">
+                        <span className="font-mono">{k.key.split(" ")[0]} …{k.key.split(" ")[1]?.slice(-12)}</span>
+                        {" · "}
+                        <span title={formatDate(k.createdAt)}>added {timeAgo(k.createdAt)}</span>
+                        {k.addedBy && <> by {k.addedBy}</>}
+                        {" · "}
+                        {k.lastUsed ? (
+                          <span title={formatDate(k.lastUsed)}>last used {timeAgo(k.lastUsed)}</span>
+                        ) : (
+                          <span className="text-amber-400/80">never used</span>
+                        )}
+                      </p>
+                    </div>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost-danger"
+                        size="sm"
+                        onClick={() =>
+                          setConfirm({
+                            title: "Delete deploy key",
+                            message: "Anything using this key will lose access. Delete",
+                            itemName: k.title,
+                            action: () => postJson("/api/deploy-keys/delete", { repo, keyId: k.id }, "Failed to delete deploy key"),
+                            onSuccess: () => {
+                              showToast(`Deleted deploy key ${k.title}`, "success");
+                              deployKeys.setItems((prev) => prev.filter((x) => x.id !== k.id));
+                            },
+                          })
+                        }
+                      >
+                        Delete
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      )}
+
+      {tab === "settings" && isAdmin && <RepoSettingsPanel repo={repo} onChanged={fetchMeta} />}
 
       {/* ── Modals ───────────────────────────────────────────────── */}
 
-      {/* Revoke invitation */}
-      {revokeModal.open && (
-        <RevokeInviteModal
-          username={revokeModal.username}
+      {entryModal && (
+        <EntryModal
+          kind={entryModal.kind}
+          mode={entryModal.mode}
           repo={repo}
-          invitationId={revokeModal.invitationId}
-          onClose={() =>
-            setRevokeModal({ open: false, username: "", invitationId: 0 })
-          }
+          env={entryModal.env}
+          initialName={entryModal.name}
+          initialValue={entryModal.value}
+          onClose={() => setEntryModal(null)}
           onSuccess={() => {
-            setRevokeModal({ open: false, username: "", invitationId: 0 });
-            showToast("Invitation revoked", "success");
-            fetchInvitations();
+            const { kind, mode, env } = entryModal;
+            setEntryModal(null);
+            showToast(`${kind === "secret" ? "Secret" : "Variable"} ${mode === "create" ? "created" : "saved"}`, "success");
+            reloadEntries(kind, env);
           }}
         />
       )}
 
-      {/* Delete repo secret */}
-      {deleteSecretModal.open &&
-        !deleteSecretModal.secretName.startsWith("env:") && (
-          <DeleteSecretModal
-            secretName={deleteSecretModal.secretName}
-            repo={repo}
-            onClose={() =>
-              setDeleteSecretModal({ open: false, secretName: "" })
-            }
-            onSuccess={() => {
-              setDeleteSecretModal({ open: false, secretName: "" });
-              showToast("Secret deleted successfully", "success");
-              fetchSecrets();
-            }}
-          />
-        )}
-
-      {/* Delete env secret */}
-      {deleteSecretModal.open &&
-        deleteSecretModal.secretName.startsWith("env:") && (() => {
-          const parts = deleteSecretModal.secretName.split(":");
-          const envName = parts[1];
-          const secretName = parts.slice(2).join(":");
-          return (
-            <DeleteConfirmModal
-              title="Delete Environment Secret"
-              message={`Are you sure you want to delete`}
-              itemName={secretName}
-              onConfirm={() => handleDeleteEnvSecret(secretName, envName)}
-              onClose={() =>
-                setDeleteSecretModal({ open: false, secretName: "" })
-              }
-              onSuccess={() => {
-                setDeleteSecretModal({ open: false, secretName: "" });
-                showToast("Environment secret deleted", "success");
-                fetchEnvSecrets(envName);
-              }}
-            />
-          );
-        })()}
-
-      {/* Secret create/update (repo or env) */}
-      {secretModal.open && (
-        <SecretModal
-          mode={secretModal.mode}
-          secretName={secretModal.secretName}
-          repo={repo}
-          env={secretModal.env}
-          onClose={() => setSecretModal({ open: false, mode: "create" })}
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          itemName={confirm.itemName}
+          confirmLabel={confirm.confirmLabel}
+          onConfirm={confirm.action}
+          onClose={() => setConfirm(null)}
           onSuccess={() => {
-            const wasEnv = secretModal.env;
-            setSecretModal({ open: false, mode: "create" });
-            showToast(
-              secretModal.mode === "create"
-                ? "Secret created successfully"
-                : "Secret updated successfully",
-              "success"
-            );
-            if (wasEnv) {
-              fetchEnvSecrets(wasEnv);
-            } else {
-              fetchSecrets();
-            }
+            confirm.onSuccess();
+            setConfirm(null);
           }}
         />
       )}
 
-      {/* Variable create/update (repo or env) */}
-      {variableModal.open && (
-        <VariableModal
-          mode={variableModal.mode}
-          variableName={variableModal.variableName}
-          variableValue={variableModal.variableValue}
-          repo={repo}
-          env={variableModal.env}
-          onClose={() => setVariableModal({ open: false, mode: "create" })}
-          onSuccess={() => {
-            const wasEnv = variableModal.env;
-            setVariableModal({ open: false, mode: "create" });
-            showToast(
-              variableModal.mode === "create"
-                ? "Variable created successfully"
-                : "Variable updated successfully",
-              "success"
-            );
-            if (wasEnv) {
-              fetchEnvVariables(wasEnv);
-            } else {
-              fetchVariables();
-            }
-          }}
-        />
-      )}
-
-      {/* Delete variable (repo or env) */}
-      {deleteVariableModal.open && (
-        <DeleteConfirmModal
-          title="Delete Variable"
-          message="Are you sure you want to delete"
-          itemName={deleteVariableModal.variableName}
-          onConfirm={() =>
-            handleDeleteVariable(
-              deleteVariableModal.variableName,
-              deleteVariableModal.env
-            )
-          }
-          onClose={() =>
-            setDeleteVariableModal({ open: false, variableName: "" })
-          }
-          onSuccess={() => {
-            const wasEnv = deleteVariableModal.env;
-            setDeleteVariableModal({ open: false, variableName: "" });
-            showToast("Variable deleted successfully", "success");
-            if (wasEnv) {
-              fetchEnvVariables(wasEnv);
-            } else {
-              fetchVariables();
-            }
-          }}
-        />
-      )}
-
-      {/* Create environment */}
-      {createEnvModal && (
+      {createEnvOpen && (
         <CreateEnvironmentModal
           repo={repo}
-          onClose={() => setCreateEnvModal(false)}
-          onSuccess={() => {
-            setCreateEnvModal(false);
-            showToast("Environment created successfully", "success");
-            fetchEnvironments();
+          existing={envNames}
+          onClose={() => setCreateEnvOpen(false)}
+          onSuccess={(name) => {
+            setCreateEnvOpen(false);
+            showToast(`Environment ${name} created`, "success");
+            setEnvParam(name);
+            environments.reload();
           }}
         />
       )}
 
-      {/* Delete environment */}
-      {deleteEnvModal && selectedEnv && (
-        <DeleteConfirmModal
-          title="Delete Environment"
-          message="Are you sure you want to delete the environment"
-          itemName={selectedEnv}
-          onConfirm={handleDeleteEnvironment}
-          onClose={() => setDeleteEnvModal(false)}
-          onSuccess={() => {
-            setDeleteEnvModal(false);
-            setSelectedEnv("");
-            showToast("Environment deleted successfully", "success");
-            fetchEnvironments();
+      {deployKeyOpen && (
+        <DeployKeyModal
+          repo={repo}
+          onClose={() => setDeployKeyOpen(false)}
+          onSuccess={(title) => {
+            setDeployKeyOpen(false);
+            showToast(`Deploy key ${title} added`, "success");
+            deployKeys.reload();
+          }}
+        />
+      )}
+
+      {addOpen && team && (
+        <AddModal
+          allRepos={allRepos}
+          members={team}
+          fixedRepo={repo}
+          onClose={() => setAddOpen(false)}
+          onDone={(result: AddResult) => {
+            if (result.invited.length > 0) invitations.reload();
           }}
         />
       )}
