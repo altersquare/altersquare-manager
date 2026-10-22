@@ -2,7 +2,8 @@ import fs from "fs/promises";
 import path from "path";
 import { Collaborator, Repo } from "./github";
 
-const CACHE_DIR = path.join(process.cwd(), "data");
+// CACHE_DIR lets tests point at a fixture without touching the real cache
+const CACHE_DIR = process.env.CACHE_DIR || path.join(process.cwd(), "data");
 const CACHE_FILE = path.join(CACHE_DIR, "cache.json");
 
 export interface CacheData {

@@ -138,6 +138,16 @@ npm install
 npm run dev
 ```
 
+### Testing
+
+```bash
+npm run typecheck
+npm run build
+npm run test:smoke
+```
+
+`test:smoke` starts the production build with dummy credentials and a temporary fixture cache (it never touches `data/` or calls GitHub). It checks auth redirects, that every page renders, that members get 403 from admin-only routes, and that input validation runs. The same steps run in GitHub Actions on every pull request and push to `main` (`.github/workflows/ci.yaml`).
+
 ### Production
 
 ```bash
