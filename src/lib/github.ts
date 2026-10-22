@@ -867,3 +867,27 @@ export async function updateRepoSettings(
 export async function replaceRepoTopics(repo: string, topics: string[]): Promise<void> {
   await octokit.rest.repos.replaceAllTopics({ owner: OWNER, repo, names: topics });
 }
+
+// ── Rate Limit ──────────────────────────────────────────────────────
+
+export interface RateLimit {
+  limit: number;
+  remaining: number;
+  used: number;
+  /** ISO time when the quota resets. */
+  resetAt: string;
+}
+
+/**
+ * Core REST API quota for the server's token. This call does not count against the limit.
+ */
+export async function getRateLimit(): Promise<RateLimit> {
+  const { data } = await octokit.rest.rateLimit.get();
+  const core = data.resources.core;
+  return {
+    limit: core.limit,
+    remaining: core.remaining,
+    used: core.used,
+    resetAt: new Date(core.reset * 1000).toISOString(),
+  };
+}

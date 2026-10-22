@@ -14,6 +14,15 @@ const navLinks = [
   { label: "Access", href: "/access", adminOnly: true },
 ];
 
+interface RateLimit {
+  limit: number;
+  remaining: number;
+  resetAt: string;
+}
+
+/** Minutes until reset, rounded up. */
+const minutesUntil = (iso: string, now: number) => Math.max(1, Math.ceil((new Date(iso).getTime() - now) / 60000));
+
 const ROLE_HELP = {
   admin: "Admin — full access: manage collaborators, invitations, and delete secrets, variables and environments.",
   member:
@@ -32,6 +41,27 @@ export function Navbar() {
     const id = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(id);
   }, []);
+
+  // GitHub API quota for the shared token: refreshed every minute and after each sync
+  const [rateLimit, setRateLimit] = useState<RateLimit | null>(null);
+  const loggedIn = Boolean(session?.user);
+  useEffect(() => {
+    if (!loggedIn) return;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/rate-limit");
+        if (res.ok) setRateLimit((await res.json()).rateLimit);
+      } catch {
+        // Indicator is best-effort
+      }
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, [loggedIn, cachedAt]);
+
+  const quotaRatio = rateLimit && rateLimit.limit > 0 ? rateLimit.remaining / rateLimit.limit : 1;
+  const quotaLevel = quotaRatio < 0.05 ? "critical" : quotaRatio < 0.2 ? "low" : "ok";
 
   return (
     <nav className="bg-gray-900/95 backdrop-blur border-b border-gray-800 sticky top-0 z-50">
@@ -70,6 +100,21 @@ export function Navbar() {
 
         {session?.user && (
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* Rate limit: only takes space when the quota is running low */}
+            {rateLimit && quotaLevel !== "ok" && (
+              <span
+                title={`GitHub API: ${rateLimit.remaining.toLocaleString()} of ${rateLimit.limit.toLocaleString()} requests left, resets in ${minutesUntil(rateLimit.resetAt, now)} min. Syncing and loading repo pages use this shared quota.`}
+                className={`px-2 py-1 text-[11px] font-semibold rounded-lg border cursor-help whitespace-nowrap ${
+                  quotaLevel === "critical"
+                    ? "bg-red-500/15 text-red-300 border-red-500/40"
+                    : "bg-amber-500/10 text-amber-300 border-amber-500/30"
+                }`}
+              >
+                API {rateLimit.remaining.toLocaleString()} left
+                <span className="hidden sm:inline font-normal opacity-80"> · resets {minutesUntil(rateLimit.resetAt, now)}m</span>
+              </span>
+            )}
+
             {/* Sync: one control that shows freshness and refreshes on click */}
             <div className="relative group">
               <button
@@ -92,6 +137,25 @@ export function Navbar() {
                   Team members, collaborator access and the repo list are cached. Click to re-fetch them from GitHub.
                   Secrets, variables, environments and invitations are always live.
                 </p>
+                {rateLimit && (
+                  <div className="mt-2 pt-2 border-t border-gray-700">
+                    <div className="flex justify-between text-[11px] text-gray-400 mb-1">
+                      <span>GitHub API quota</span>
+                      <span>
+                        {rateLimit.remaining.toLocaleString()} / {rateLimit.limit.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="h-1 bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          quotaLevel === "critical" ? "bg-red-500" : quotaLevel === "low" ? "bg-amber-500" : "bg-emerald-500"
+                        }`}
+                        style={{ width: `${Math.round(quotaRatio * 100)}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-1">Resets in {minutesUntil(rateLimit.resetAt, now)} min</p>
+                  </div>
+                )}
               </div>
             </div>
 

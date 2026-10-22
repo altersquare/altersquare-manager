@@ -93,6 +93,7 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 
 - **File-based cache** — Team and repo data is cached to `data/cache.json` on disk to minimize GitHub API calls.
 - **Global sync button** — A sync button in the navbar (accessible on all pages) clears the cache and fetches fresh data from GitHub. A tooltip explains what gets synced. Both the Team and Repos pages auto re-fetch after sync completes.
+- **Rate-limit indicator** — The sync tooltip shows the shared token's GitHub API quota and reset time; a warning pill appears in the navbar when under 20% remains (red under 5%).
 - **Last synced timestamp** — The navbar sync button shows relative freshness (e.g. "Synced 5 min ago"); hover for the exact time and what is cached.
 - **In-place cache updates** — Mutations (e.g., removing a collaborator) update the cache directly to avoid full refetches.
 - **Parallel data fetching** — Collaborators for all repos are fetched in parallel via `Promise.allSettled`, with graceful handling of 403 errors on restricted repos (e.g., forks).
@@ -265,6 +266,7 @@ data/
 | `/api/deploy-keys/delete`                          | POST   | Admin   | Delete a deploy key                          |
 | `/api/repos/settings`                              | GET    | Admin   | Get description, website, topics, visibility |
 | `/api/repos/settings/update`                       | POST   | Admin   | Update repo settings / visibility / archive  |
+| `/api/rate-limit`                                  | GET    | Member+ | GitHub API quota for the server token        |
 | `/api/secrets`                                     | GET    | Member+ | List repo secrets (repo access required)     |
 | `/api/secrets/create`                              | POST   | Member+ | Create or update a repo secret               |
 | `/api/secrets/delete`                              | POST   | Admin   | Delete a repo secret                         |
