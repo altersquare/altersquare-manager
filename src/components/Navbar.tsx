@@ -121,7 +121,7 @@ export function Navbar() {
                 type="button"
                 onClick={handleRefresh}
                 disabled={refreshing}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-300 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors disabled:opacity-60 cursor-pointer disabled:cursor-wait"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium whitespace-nowrap text-gray-300 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors disabled:opacity-60 cursor-pointer disabled:cursor-wait"
                 aria-label="Sync data from GitHub"
               >
                 <RefreshIcon className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />

@@ -7,7 +7,8 @@ import { useToast } from "@/components/Toast";
 import { useSync } from "@/components/SyncContext";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { OffboardModal, OffboardResult } from "@/components/OffboardModal";
-import { Button, EmptyState, ErrorState, ListSkeleton, PageHeader, SearchInput } from "@/components/ui";
+import { Button, CheckSquare, EmptyState, ErrorState, ListSkeleton, PageHeader, SearchInput } from "@/components/ui";
+import { BulkInviteModal, BulkInviteResult } from "@/components/BulkInviteModal";
 import { MailIcon, RefreshIcon, UsersIcon, WarningIcon } from "@/components/icons";
 import { postJson } from "@/lib/api";
 import { formatDate, plural, timeAgo } from "@/lib/format";
@@ -64,6 +65,9 @@ export default function AccessPage() {
   const [search, setSearch] = useUrlState("q", "");
   const [inviteFilter, setInviteFilter] = useUrlState<InviteFilter>("invites", "all");
   const [offboarding, setOffboarding] = useState<Person | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Snapshot of the invites being processed, so clearing the selection doesn't close the dialog
+  const [bulk, setBulk] = useState<{ action: "resend" | "revoke"; invites: Invitation[] } | null>(null);
   const [confirm, setConfirm] = useState<{
     title: string;
     message: string;
@@ -132,6 +136,31 @@ export default function AccessPage() {
     (i) => (inviteFilter === "all" || i.expired) && (!q || i.username.toLowerCase().includes(q) || i.repo.toLowerCase().includes(q))
   );
   const loaded = team !== null && invitations !== null;
+
+  // Selection only counts invites that still exist and are visible
+  const selectedInvites = visibleInvites.filter((i) => selected.has(i.id));
+  const selectedHasActive = selectedInvites.some((i) => !i.expired);
+  const visibleExpired = visibleInvites.filter((i) => i.expired);
+  const allVisibleSelected = visibleInvites.length > 0 && visibleInvites.every((i) => selected.has(i.id));
+  const toggleSelected = (id: number) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const handleBulkDone = (r: BulkInviteResult) => {
+    setSelected(new Set());
+    if (r.action === "revoke") {
+      setInvitations((prev) => (prev ?? []).filter((i) => !r.succeeded.includes(i.id)));
+    } else if (r.succeeded.length > 0) {
+      load(); // re-sent invites get new ids
+    }
+    if (r.failed.length === 0) {
+      showToast(`${r.action === "resend" ? "Re-sent" : "Revoked"} ${plural(r.succeeded.length, "invitation")}`, "success");
+    }
+  };
 
   const dropInvite = (id: number) => setInvitations((prev) => (prev ?? []).filter((i) => i.id !== id));
 
@@ -215,9 +244,57 @@ export default function AccessPage() {
                 title={inviteFilter === "expired" ? "No expired invitations" : "No pending invitations"}
               />
             ) : (
+              <>
+              <div className="flex flex-wrap items-center gap-2 mb-2 min-h-8">
+                <button
+                  type="button"
+                  onClick={() => setSelected(allVisibleSelected ? new Set() : new Set(visibleInvites.map((i) => i.id)))}
+                  className="flex items-center gap-2 px-2 py-1 text-xs text-gray-400 hover:text-gray-200 cursor-pointer"
+                >
+                  <CheckSquare checked={allVisibleSelected} indeterminate={selectedInvites.length > 0} />
+                  {allVisibleSelected ? "Deselect all" : "Select all"}
+                </button>
+                {visibleExpired.length > 0 && !(selectedInvites.length === visibleExpired.length && !selectedHasActive) && (
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Set(visibleExpired.map((i) => i.id)))}
+                    className="px-2 py-1 text-xs text-amber-400 hover:text-amber-300 cursor-pointer"
+                  >
+                    Select all expired ({visibleExpired.length})
+                  </button>
+                )}
+                {selectedInvites.length > 0 && (
+                  <div className="flex items-center gap-2 ml-auto">
+                    <span className="text-xs text-gray-500">{selectedInvites.length} selected</span>
+                    <Button
+                      size="sm"
+                      onClick={() => setBulk({ action: "resend", invites: selectedInvites })}
+                      title={selectedHasActive ? "Also restarts invites that haven't expired yet" : undefined}
+                    >
+                      <RefreshIcon className="w-3.5 h-3.5" />
+                      Re-send
+                    </Button>
+                    <Button variant="ghost-danger" size="sm" onClick={() => setBulk({ action: "revoke", invites: selectedInvites })}>
+                      Revoke
+                    </Button>
+                  </div>
+                )}
+              </div>
               <ul className="divide-y divide-gray-800 border border-gray-800 rounded-xl overflow-hidden">
                 {visibleInvites.map((inv) => (
-                  <li key={inv.id} className="flex items-center gap-3 px-4 py-2.5 bg-gray-900/40">
+                  <li
+                    key={inv.id}
+                    className={`flex items-center gap-3 px-4 py-2.5 ${selected.has(inv.id) ? "bg-blue-500/5" : "bg-gray-900/40"}`}
+                  >
+                    <label className="flex items-center cursor-pointer -m-2 p-2" aria-label={`Select invitation for ${inv.username} to ${inv.repo}`}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(inv.id)}
+                        onChange={() => toggleSelected(inv.id)}
+                        className="sr-only"
+                      />
+                      <CheckSquare checked={selected.has(inv.id)} />
+                    </label>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={inv.avatarUrl} alt="" className="w-8 h-8 rounded-full ring-1 ring-gray-700" />
                     <div className="flex-1 min-w-0">
@@ -291,6 +368,7 @@ export default function AccessPage() {
                   </li>
                 ))}
               </ul>
+              </>
             )}
           </section>
 
@@ -343,6 +421,15 @@ export default function AccessPage() {
           invitations={offboarding.invites.map((i) => ({ id: i.id, repo: i.repo }))}
           onClose={() => setOffboarding(null)}
           onDone={handleOffboarded}
+        />
+      )}
+
+      {bulk && (
+        <BulkInviteModal
+          action={bulk.action}
+          invites={bulk.invites.map((i) => ({ id: i.id, repo: i.repo, username: i.username }))}
+          onClose={() => setBulk(null)}
+          onDone={handleBulkDone}
         />
       )}
 

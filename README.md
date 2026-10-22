@@ -58,6 +58,7 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 
 - **Cross-repo overview** — `/access` lists everyone with access or a pending invite, sorted by how much they can reach, with counts of pending and expired invitations. Exportable as CSV.
 - **Expired invitations** — GitHub expires invites after 7 days; they're flagged and can be re-sent in one click (revoke + invite again) or revoked.
+- **Bulk invitation actions** — Select invitations (or "Select all expired") and re-send or revoke them together, with per-invite progress and failures listed.
 - **Offboarding** — Remove a person from every repo and revoke all their pending invites in one step, after typing their username to confirm.
 - **Personal-account note** — Repos owned by a user account have a single collaborator role (write), so there are no per-repo permission levels to review.
 
