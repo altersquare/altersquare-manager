@@ -206,6 +206,8 @@ export interface PendingInvitation {
   username: string;
   avatarUrl: string;
   createdAt: string;
+  /** GitHub expires invitations after 7 days; expired ones must be re-sent. */
+  expired: boolean;
 }
 
 /**
@@ -237,6 +239,7 @@ export async function fetchPendingInvitations(
           username: inv.invitee.login,
           avatarUrl: inv.invitee.avatar_url,
           createdAt: inv.created_at,
+          expired: Boolean(inv.expired),
         });
       }
 
@@ -266,6 +269,26 @@ export async function revokeInvitation(
     owner,
     repo,
     invitation_id: invitationId,
+  });
+}
+
+/**
+ * Fetch pending invitations across many repos (parallel; per-repo failures are skipped).
+ */
+export async function fetchAllPendingInvitations(
+  repos: string[]
+): Promise<(PendingInvitation & { repo: string })[]> {
+  const results = await Promise.allSettled(
+    repos.map(async (repo) =>
+      (await fetchPendingInvitations(OWNER, repo)).map((inv) => ({ ...inv, repo }))
+    )
+  );
+  return results.flatMap((r) => {
+    if (r.status === "rejected") {
+      console.error("Failed to fetch invitations:", r.reason);
+      return [];
+    }
+    return r.value;
   });
 }
 

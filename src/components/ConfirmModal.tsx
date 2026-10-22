@@ -10,6 +10,8 @@ interface ConfirmModalProps {
   message: React.ReactNode;
   itemName?: string;
   confirmLabel?: string;
+  /** false for reversible actions: neutral styling, no "can't be undone". */
+  destructive?: boolean;
   onConfirm: () => Promise<void>;
   onClose: () => void;
   onSuccess: () => void;
@@ -21,6 +23,7 @@ export function ConfirmModal({
   message,
   itemName,
   confirmLabel = "Delete",
+  destructive = true,
   onConfirm,
   onClose,
   onSuccess,
@@ -43,8 +46,8 @@ export function ConfirmModal({
   return (
     <Modal
       title={title}
-      tone="red"
-      icon={<TrashIcon className="w-5 h-5" />}
+      tone={destructive ? "red" : "blue"}
+      icon={destructive ? <TrashIcon className="w-5 h-5" /> : undefined}
       busy={loading}
       onClose={onClose}
       footer={
@@ -52,7 +55,7 @@ export function ConfirmModal({
           <Button onClick={onClose} disabled={loading}>
             Cancel
           </Button>
-          <Button variant="danger" onClick={handleConfirm} loading={loading} autoFocus>
+          <Button variant={destructive ? "danger" : "primary"} onClick={handleConfirm} loading={loading} autoFocus>
             {confirmLabel}
           </Button>
         </>
@@ -66,7 +69,7 @@ export function ConfirmModal({
             <span className="font-mono font-medium text-gray-100 break-all">{itemName}</span>
           </>
         )}
-        ? This can&apos;t be undone.
+        ?{destructive && " This can't be undone."}
       </p>
       {error && <p className="text-sm text-red-400 mt-3">{error}</p>}
     </Modal>

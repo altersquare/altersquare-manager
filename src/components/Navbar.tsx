@@ -9,8 +9,9 @@ import { LogoutIcon, RefreshIcon } from "@/components/icons";
 import { formatDate, timeAgo } from "@/lib/format";
 
 const navLinks = [
-  { label: "Team", href: "/" },
-  { label: "Repos", href: "/repos" },
+  { label: "Team", href: "/", adminOnly: false },
+  { label: "Repos", href: "/repos", adminOnly: false },
+  { label: "Access", href: "/access", adminOnly: true },
 ];
 
 const ROLE_HELP = {
@@ -47,7 +48,7 @@ export function Navbar() {
         </Link>
 
         <div className="flex items-center gap-1">
-          {navLinks.map((link) => {
+          {navLinks.filter((link) => isAdmin || !link.adminOnly).map((link) => {
             const isActive = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
             return (
               <Link

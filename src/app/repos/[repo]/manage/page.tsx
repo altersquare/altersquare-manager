@@ -40,6 +40,7 @@ interface PendingInvitation {
   username: string;
   avatarUrl: string;
   createdAt: string;
+  expired: boolean;
 }
 
 interface RepoInfo {
@@ -508,7 +509,14 @@ export default function RepoManagePage() {
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={inv.avatarUrl} alt="" className="w-8 h-8 rounded-full ring-1 ring-gray-700" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{inv.username}</p>
+                      <p className="text-sm font-medium truncate">
+                        {inv.username}
+                        {inv.expired && (
+                          <span className="ml-2 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-500/15 text-amber-400">
+                            EXPIRED
+                          </span>
+                        )}
+                      </p>
                       <p className="text-[11px] text-gray-500" title={formatDate(inv.createdAt)}>
                         Invited {timeAgo(inv.createdAt)}
                       </p>

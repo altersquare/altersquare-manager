@@ -54,6 +54,13 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 - **View pending invitations** — Displayed on the repo page's Access tab, below the repo's collaborators. Always fetched live from GitHub. Shows avatar, username, and sent date for each invitation.
 - **Revoke invitations** — Cancel pending invitations with a confirmation modal (admin-only). List updates immediately after revocation.
 
+### Access Review (admin)
+
+- **Cross-repo overview** — `/access` lists everyone with access or a pending invite, sorted by how much they can reach, with counts of pending and expired invitations. Exportable as CSV.
+- **Expired invitations** — GitHub expires invites after 7 days; they're flagged and can be re-sent in one click (revoke + invite again) or revoked.
+- **Offboarding** — Remove a person from every repo and revoke all their pending invites in one step, after typing their username to confirm.
+- **Personal-account note** — Repos owned by a user account have a single collaborator role (write), so there are no per-repo permission levels to review.
+
 ### Unified Manage Page
 
 - **Tabbed repo page** — `/repos/{repo}/manage` has Secrets, Variables, Environments and Access tabs (the active tab is kept in the URL). Lists over 6 items get a filter box; variables can be expanded and copied, and every entry can copy its `${{ secrets.X }}` / `${{ vars.X }}` reference.
@@ -240,6 +247,8 @@ data/
 | `/api/repos/details`                               | GET    | Member+ | Repos with collaborator counts (filtered)    |
 | `/api/repos/invitations`                           | GET    | Member+ | Pending invitations for a repo               |
 | `/api/repos/invitations/revoke`                    | POST   | Admin   | Revoke a pending invitation                  |
+| `/api/access/invitations`                          | GET    | Admin   | Pending invitations across all repos         |
+| `/api/access/resend`                               | POST   | Admin   | Re-send an (expired) invitation              |
 | `/api/secrets`                                     | GET    | Member+ | List repo secrets (repo access required)     |
 | `/api/secrets/create`                              | POST   | Member+ | Create or update a repo secret               |
 | `/api/secrets/delete`                              | POST   | Admin   | Delete a repo secret                         |
