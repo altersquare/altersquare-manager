@@ -13,6 +13,8 @@ export interface Repo {
   private: boolean;
   url: string;
   description: string | null;
+  /** Absent in caches written before this field existed. */
+  archived?: boolean;
 }
 
 /**
@@ -41,6 +43,7 @@ export async function fetchAllRepos(): Promise<Repo[]> {
         private: repo.private,
         url: repo.html_url,
         description: repo.description,
+        archived: repo.archived,
       });
     }
 
@@ -819,4 +822,48 @@ export async function deleteDeployKey(repo: string, keyId: number): Promise<void
     repo,
     key_id: keyId,
   });
+}
+
+// ── Repository Settings ─────────────────────────────────────────────
+
+export interface RepoSettings {
+  description: string;
+  homepage: string;
+  topics: string[];
+  private: boolean;
+  archived: boolean;
+  defaultBranch: string;
+}
+
+/**
+ * Fetch editable settings for a repository.
+ */
+export async function getRepoSettings(repo: string): Promise<RepoSettings> {
+  const { data } = await octokit.rest.repos.get({ owner: OWNER, repo });
+  return {
+    description: data.description ?? "",
+    homepage: data.homepage ?? "",
+    topics: data.topics ?? [],
+    private: data.private,
+    archived: data.archived,
+    defaultBranch: data.default_branch,
+  };
+}
+
+/**
+ * Update description, homepage, visibility and/or archived state.
+ * Only the provided fields are changed.
+ */
+export async function updateRepoSettings(
+  repo: string,
+  changes: { description?: string; homepage?: string; private?: boolean; archived?: boolean }
+): Promise<void> {
+  await octokit.rest.repos.update({ owner: OWNER, repo, ...changes });
+}
+
+/**
+ * Replace a repository's topics.
+ */
+export async function replaceRepoTopics(repo: string, topics: string[]): Promise<void> {
+  await octokit.rest.repos.replaceAllTopics({ owner: OWNER, repo, names: topics });
 }

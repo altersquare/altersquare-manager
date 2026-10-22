@@ -11,6 +11,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { CreateEnvironmentModal } from "@/components/CreateEnvironmentModal";
 import { AddModal, AddResult } from "@/components/AddModal";
 import { DeployKeyModal } from "@/components/DeployKeyModal";
+import { RepoSettingsPanel } from "@/components/RepoSettingsPanel";
 import { Button, EmptyState, ErrorState, ListSkeleton, Tabs, CountBadge, buttonClass } from "@/components/ui";
 import {
   ChevronLeftIcon,
@@ -60,6 +61,7 @@ interface RepoInfo {
   private: boolean;
   url: string;
   description: string | null;
+  archived: boolean;
 }
 
 interface TeamMember {
@@ -69,7 +71,7 @@ interface TeamMember {
   repos: string[];
 }
 
-type Tab = "secrets" | "variables" | "environments" | "access";
+type Tab = "secrets" | "variables" | "environments" | "access" | "settings";
 
 type EntryModalState = {
   kind: EntryKind;
@@ -280,6 +282,24 @@ export default function RepoManagePage() {
         </a>
       </div>
 
+      {repoInfo?.archived && (
+        <div className="mb-6 rounded-xl border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-200 flex items-start gap-2">
+          <WarningIcon className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+          <span>
+            This repository is archived and read-only — GitHub will reject changes to secrets, variables and
+            environments.
+            {isAdmin && (
+              <>
+                {" "}
+                <button type="button" onClick={() => setTab("settings")} className="underline hover:text-white cursor-pointer">
+                  Unarchive in Settings
+                </button>
+              </>
+            )}
+          </span>
+        </div>
+      )}
+
       <Tabs<Tab>
         active={tab}
         onChange={setTab}
@@ -302,6 +322,7 @@ export default function RepoManagePage() {
                 </span>
               ) : undefined,
           },
+          ...(isAdmin ? [{ id: "settings" as const, label: "Settings" }] : []),
         ]}
       />
 
@@ -651,6 +672,8 @@ export default function RepoManagePage() {
           </section>
         </div>
       )}
+
+      {tab === "settings" && isAdmin && <RepoSettingsPanel repo={repo} onChanged={fetchMeta} />}
 
       {/* ── Modals ───────────────────────────────────────────────── */}
 

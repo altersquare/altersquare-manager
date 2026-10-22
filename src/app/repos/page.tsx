@@ -24,6 +24,7 @@ interface RepoDetail {
   url: string;
   description: string | null;
   collaboratorCount: number;
+  archived: boolean;
 }
 
 type SortOption = "name-asc" | "name-desc" | "collabs-desc" | "collabs-asc";
@@ -237,6 +238,11 @@ export default function ReposPage() {
                       >
                         {repo.private ? "Private" : "Public"}
                       </span>
+                      {repo.archived && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border bg-gray-700/40 text-gray-400 border-gray-600">
+                          Archived
+                        </span>
+                      )}
                     </div>
                     <p className="text-gray-500 text-sm mt-1 truncate">
                       {repo.description || <span className="italic text-gray-600">No description</span>}

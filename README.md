@@ -66,6 +66,12 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 - **Per-repo deploy keys** — Listed on the repo page's Access tab with read-only / read-write badge, who added it, and when it was last used ("never used" keys are highlighted).
 - **Add / delete (admin)** — Read-only by default; write access is an explicit opt-in. Pasting a private key is caught before submission.
 
+### Repository Settings (admin)
+
+- **Settings tab** — Edit description, website and topics (chip input with auto-normalisation, max 20).
+- **Visibility** — Switch public/private; requires typing the repo name, with a clear warning about what becomes exposed.
+- **Archive / unarchive** — Archiving requires typing the repo name. Archived repos get a read-only banner on the repo page and an "Archived" badge in the repo list.
+
 ### Unified Manage Page
 
 - **Tabbed repo page** — `/repos/{repo}/manage` has Secrets, Variables, Environments and Access tabs (the active tab is kept in the URL). Lists over 6 items get a filter box; variables can be expanded and copied, and every entry can copy its `${{ secrets.X }}` / `${{ vars.X }}` reference.
@@ -257,6 +263,8 @@ data/
 | `/api/deploy-keys`                                 | GET    | Member+ | List deploy keys for a repo                  |
 | `/api/deploy-keys/create`                          | POST   | Admin   | Add a deploy key                             |
 | `/api/deploy-keys/delete`                          | POST   | Admin   | Delete a deploy key                          |
+| `/api/repos/settings`                              | GET    | Admin   | Get description, website, topics, visibility |
+| `/api/repos/settings/update`                       | POST   | Admin   | Update repo settings / visibility / archive  |
 | `/api/secrets`                                     | GET    | Member+ | List repo secrets (repo access required)     |
 | `/api/secrets/create`                              | POST   | Member+ | Create or update a repo secret               |
 | `/api/secrets/delete`                              | POST   | Admin   | Delete a repo secret                         |
