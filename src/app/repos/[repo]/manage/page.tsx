@@ -10,10 +10,12 @@ import { EntryList, Entry } from "@/components/EntryList";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { CreateEnvironmentModal } from "@/components/CreateEnvironmentModal";
 import { AddModal, AddResult } from "@/components/AddModal";
+import { DeployKeyModal } from "@/components/DeployKeyModal";
 import { Button, EmptyState, ErrorState, ListSkeleton, Tabs, CountBadge, buttonClass } from "@/components/ui";
 import {
   ChevronLeftIcon,
   ExternalLinkIcon,
+  KeyIcon,
   MailIcon,
   PlusIcon,
   ServerIcon,
@@ -41,6 +43,16 @@ interface PendingInvitation {
   avatarUrl: string;
   createdAt: string;
   expired: boolean;
+}
+
+interface DeployKey {
+  id: number;
+  title: string;
+  key: string;
+  readOnly: boolean;
+  createdAt: string;
+  addedBy: string | null;
+  lastUsed: string | null;
 }
 
 interface RepoInfo {
@@ -130,6 +142,8 @@ export default function RepoManagePage() {
   const variables = useList<Entry>(`/api/variables?repo=${r}`, "variables");
   const environments = useList<Environment>(`/api/environments?repo=${r}`, "environments");
   const invitations = useList<PendingInvitation>(`/api/repos/invitations?repo=${r}`, "invitations");
+  // Only fetched when the Access tab is open
+  const deployKeys = useList<DeployKey>(tab === "access" ? `/api/deploy-keys?repo=${r}` : null, "keys");
 
   // Repo metadata + collaborators come from the cached team/repo data
   const [repoInfo, setRepoInfo] = useState<RepoInfo | null>(null);
@@ -173,6 +187,7 @@ export default function RepoManagePage() {
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [createEnvOpen, setCreateEnvOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [deployKeyOpen, setDeployKeyOpen] = useState(false);
 
   const reloadEntries = (kind: EntryKind, env?: string) => {
     if (env) (kind === "secret" ? envSecrets : envVariables).reload();
@@ -552,6 +567,88 @@ export default function RepoManagePage() {
               </ul>
             )}
           </section>
+
+          {/* Deploy keys */}
+          <section>
+            <div className="flex items-center gap-3 mb-1">
+              <h3 className="text-sm font-semibold text-gray-300 mr-auto">
+                Deploy keys{" "}
+                {!deployKeys.loading && !deployKeys.error && (
+                  <span className="text-gray-500 font-normal">({deployKeys.items.length})</span>
+                )}
+              </h3>
+              {isAdmin && (
+                <Button variant="primary" size="sm" onClick={() => setDeployKeyOpen(true)}>
+                  <PlusIcon className="w-3.5 h-3.5" />
+                  Add deploy key
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              SSH keys that can clone this repo without a user account — easy to forget when reviewing access.
+            </p>
+            {deployKeys.loading ? (
+              <ListSkeleton rows={1} />
+            ) : deployKeys.error ? (
+              <ErrorState message={deployKeys.error} onRetry={deployKeys.reload} />
+            ) : deployKeys.items.length === 0 ? (
+              <EmptyState compact icon={<KeyIcon />} title="No deploy keys" />
+            ) : (
+              <ul className="divide-y divide-gray-800 border border-gray-800 rounded-xl overflow-hidden">
+                {deployKeys.items.map((k) => (
+                  <li key={k.id} className="flex items-center gap-3 px-4 py-2.5 bg-gray-900/40">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-amber-500/10 text-amber-400">
+                      <KeyIcon className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {k.title}
+                        <span
+                          className={`ml-2 px-1.5 py-0.5 text-[10px] font-semibold rounded ${
+                            k.readOnly ? "bg-gray-700/60 text-gray-300" : "bg-red-500/15 text-red-300"
+                          }`}
+                        >
+                          {k.readOnly ? "READ-ONLY" : "READ/WRITE"}
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-gray-500 truncate">
+                        <span className="font-mono">{k.key.split(" ")[0]} …{k.key.split(" ")[1]?.slice(-12)}</span>
+                        {" · "}
+                        <span title={formatDate(k.createdAt)}>added {timeAgo(k.createdAt)}</span>
+                        {k.addedBy && <> by {k.addedBy}</>}
+                        {" · "}
+                        {k.lastUsed ? (
+                          <span title={formatDate(k.lastUsed)}>last used {timeAgo(k.lastUsed)}</span>
+                        ) : (
+                          <span className="text-amber-400/80">never used</span>
+                        )}
+                      </p>
+                    </div>
+                    {isAdmin && (
+                      <Button
+                        variant="ghost-danger"
+                        size="sm"
+                        onClick={() =>
+                          setConfirm({
+                            title: "Delete deploy key",
+                            message: "Anything using this key will lose access. Delete",
+                            itemName: k.title,
+                            action: () => postJson("/api/deploy-keys/delete", { repo, keyId: k.id }, "Failed to delete deploy key"),
+                            onSuccess: () => {
+                              showToast(`Deleted deploy key ${k.title}`, "success");
+                              deployKeys.setItems((prev) => prev.filter((x) => x.id !== k.id));
+                            },
+                          })
+                        }
+                      >
+                        Delete
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
       )}
 
@@ -600,6 +697,18 @@ export default function RepoManagePage() {
             showToast(`Environment ${name} created`, "success");
             setEnvParam(name);
             environments.reload();
+          }}
+        />
+      )}
+
+      {deployKeyOpen && (
+        <DeployKeyModal
+          repo={repo}
+          onClose={() => setDeployKeyOpen(false)}
+          onSuccess={(title) => {
+            setDeployKeyOpen(false);
+            showToast(`Deploy key ${title} added`, "success");
+            deployKeys.reload();
           }}
         />
       )}

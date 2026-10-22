@@ -759,3 +759,64 @@ export async function deleteEnvVariable(
     }
   );
 }
+
+// ── Deploy Keys ─────────────────────────────────────────────────────
+
+export interface DeployKey {
+  id: number;
+  title: string;
+  key: string;
+  readOnly: boolean;
+  createdAt: string;
+  addedBy: string | null;
+  lastUsed: string | null;
+}
+
+/**
+ * List deploy keys (SSH keys with access to a single repo).
+ */
+export async function listDeployKeys(repo: string): Promise<DeployKey[]> {
+  const data = await octokit.paginate(octokit.rest.repos.listDeployKeys, {
+    owner: OWNER,
+    repo,
+    per_page: 100,
+  });
+  return data.map((k) => ({
+    id: k.id,
+    title: k.title,
+    key: k.key,
+    readOnly: k.read_only,
+    createdAt: k.created_at,
+    addedBy: k.added_by ?? null,
+    lastUsed: k.last_used ?? null,
+  }));
+}
+
+/**
+ * Add a deploy key. Read-only unless explicitly granted write access.
+ */
+export async function createDeployKey(
+  repo: string,
+  title: string,
+  key: string,
+  readOnly: boolean
+): Promise<void> {
+  await octokit.rest.repos.createDeployKey({
+    owner: OWNER,
+    repo,
+    title,
+    key,
+    read_only: readOnly,
+  });
+}
+
+/**
+ * Delete a deploy key.
+ */
+export async function deleteDeployKey(repo: string, keyId: number): Promise<void> {
+  await octokit.rest.repos.deleteDeployKey({
+    owner: OWNER,
+    repo,
+    key_id: keyId,
+  });
+}
