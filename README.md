@@ -15,10 +15,10 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 
 - **Unified collaborator view** — See all collaborators across every repository in one place, with avatar, username, and per-repo badges.
 - **Add collaborators** — Invite a GitHub user to one or more repositories at once (default `push` permission). A multi-select modal shows all available repos with a searchable checkbox list, select/deselect all (applies only to currently visible filtered repos), and live per-repo progress indicators.
-- **Remove collaborators** — Remove a user from all or selected repositories with granular control. The removal modal pre-selects all repos, lets you deselect individual ones, and shows per-repo progress with status icons.
-- **Search & filter** — Two side-by-side text inputs for filtering by username and by repo name (partial matching). Both compose with AND logic.
-- **Collapsible repo badges** — Members with many repos show the first 8 badges with a "+N more" button; click to expand all, click "Show less" to collapse. Independent per member.
-- **Stats bar** — Displays total member count and total repo count.
+- **Remove collaborators** — Remove a user from all or selected repositories with granular control. The removal modal starts with nothing selected (so a stray click can't revoke everything), warns when removing from all repos, and shows per-repo progress with status icons.
+- **Search & filter** — Filter by username and by repo name (type-ahead from the repo list, partial matching). Both compose with AND logic and are kept in the URL, so Back/refresh keep them.
+- **Repo badges** — Each badge links to that repo's manage page. Members with many repos show the first 8 badges with a "+N more" toggle; repos matching the repo filter are highlighted and listed first.
+- **Invitations vs access** — Adding a collaborator sends a GitHub invitation; the modal says so, marks repos the user already has, and invitees appear under the repo's pending invitations until they accept.
 - **Owner excluded** — The `altersquare` owner account is automatically excluded from the team list to prevent accidental self-removal.
 
 ### Repository Browser
@@ -45,18 +45,18 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 ### Environment Management
 
 - **Environment CRUD** — Create and delete GitHub Actions environments from the manage page. Members can create environments; only admins can delete them.
-- **Environment selector** — Dropdown selector on the per-repo manage page to switch between environments.
+- **Environment selector** — Environments appear as pills on the Environments tab; the first is selected automatically and the selection is kept in the URL (`?env=`).
 - **Environment secrets** — Per-environment secrets encrypted with the environment-specific public key using libsodium sealed box. Same create/update/delete workflow as repo secrets.
 - **Environment variables** — Per-environment plaintext variables. Same create/update/delete workflow as repo variables.
 
 ### Invitation Management
 
-- **View pending invitations** — Displayed on the per-repo manage page between the heading and secrets list. Always fetched live from GitHub. Shows avatar, username, and sent date for each invitation.
+- **View pending invitations** — Displayed on the repo page's Access tab, below the repo's collaborators. Always fetched live from GitHub. Shows avatar, username, and sent date for each invitation.
 - **Revoke invitations** — Cancel pending invitations with a confirmation modal (admin-only). List updates immediately after revocation.
 
 ### Unified Manage Page
 
-- **Single scrollable page** — All repository secrets, variables, environments, and environment-scoped secrets/variables are managed from a single page at `/repos/{repo}/manage`.
+- **Tabbed repo page** — `/repos/{repo}/manage` has Secrets, Variables, Environments and Access tabs (the active tab is kept in the URL). Lists over 6 items get a filter box; variables can be expanded and copied, and every entry can copy its `${{ secrets.X }}` / `${{ vars.X }}` reference.
 - **Per-section loading states** — Each section (secrets, variables, environments) has independent loading skeletons and error states with retry buttons.
 - **Toast notifications** — Success and error toasts for all create, update, and delete operations.
 - **Accessible modals** — All modals include `role="dialog"`, `aria-modal`, `aria-labelledby`, and Escape key dismissal.
@@ -65,7 +65,7 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 ### Authentication & Authorization
 
 - **SSO via Authentik** — OIDC-based authentication using [Authentik](https://goauthentik.io/) as the identity provider through NextAuth v5. Scopes: `openid`, `email`, `profile`, `role`, `github_username`.
-- **Role-based access control** — A custom Authentik scope mapping evaluates group membership to emit `role: "admin"` or `role: "member"` in the OIDC token. Admin-only actions (remove collaborator, delete secret, revoke invitation) are enforced both server-side (403) and client-side (disabled buttons with "Admin only" tooltips).
+- **Role-based access control** — A custom Authentik scope mapping evaluates group membership to emit `role: "admin"` or `role: "member"` in the OIDC token. Admin-only actions (remove collaborator, delete secret, revoke invitation) are enforced both server-side (403) and client-side (admin-only actions are hidden for members, and the navbar shows an Admin/Member chip explaining what each role can do).
 - **GitHub username-based repo filtering** — Each member's GitHub username is stored as a custom Authentik attribute and exposed via a `github_username` OIDC scope mapping. Members can only see and manage repos they are a collaborator on. The team page is filtered to show only collaborators who share repos with the member. Admins remain fully unrestricted.
 - **Access blocking for unconfigured members** — Members without a `github_username` attribute in Authentik are blocked from the entire application and shown a "contact your administrator" page with a sign-out button.
 - **Defense-in-depth enforcement** — Access controls are enforced at both the middleware level (page route redirects) and the API level (per-route guards). Case-insensitive GitHub username matching ensures compatibility with GitHub's username handling.
@@ -75,7 +75,7 @@ A centralized GitHub organization management dashboard for the **altersquare** G
 
 - **File-based cache** — Team and repo data is cached to `data/cache.json` on disk to minimize GitHub API calls.
 - **Global sync button** — A sync button in the navbar (accessible on all pages) clears the cache and fetches fresh data from GitHub. A tooltip explains what gets synced. Both the Team and Repos pages auto re-fetch after sync completes.
-- **Last synced timestamp** — Displayed in the navbar as an absolute timestamp (e.g. "Synced: 2/11/2026, 3:45 PM").
+- **Last synced timestamp** — The navbar sync button shows relative freshness (e.g. "Synced 5 min ago"); hover for the exact time and what is cached.
 - **In-place cache updates** — Mutations (e.g., removing a collaborator) update the cache directly to avoid full refetches.
 - **Parallel data fetching** — Collaborators for all repos are fetched in parallel via `Promise.allSettled`, with graceful handling of 403 errors on restricted repos (e.g., forks).
 - **App version in navbar** — The package.json version is displayed in the navbar title so you can tell when the UI has been updated.

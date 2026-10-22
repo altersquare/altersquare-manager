@@ -29,13 +29,10 @@ export async function readCache(): Promise<CacheData | null> {
  */
 export async function writeCache(
   team: Collaborator[],
-  repos: Repo[]
+  repos: Repo[],
+  cachedAt: string = new Date().toISOString()
 ): Promise<CacheData> {
-  const data: CacheData = {
-    team,
-    repos,
-    cachedAt: new Date().toISOString(),
-  };
+  const data: CacheData = { team, repos, cachedAt };
 
   await fs.mkdir(CACHE_DIR, { recursive: true });
   await fs.writeFile(CACHE_FILE, JSON.stringify(data, null, 2), "utf-8");

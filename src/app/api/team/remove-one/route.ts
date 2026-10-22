@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { removeCollaborator } from "@/lib/github";
 import { requireAdmin } from "@/lib/session";
+import { readCache, writeCache } from "@/lib/cache";
 
 const OWNER = process.env.GITHUB_USERNAME || "altersquare";
 
@@ -30,6 +31,18 @@ export async function POST(request: NextRequest) {
     }
 
     await removeCollaborator(OWNER, repo, username);
+
+    // Keep the cached team in step so a page reload doesn't resurrect the removed access
+    const cached = await readCache();
+    if (cached) {
+      const key = username.toLowerCase();
+      const team = cached.team
+        .map((m) =>
+          m.username.toLowerCase() === key ? { ...m, repos: m.repos.filter((r) => r !== repo) } : m
+        )
+        .filter((m) => m.repos.length > 0);
+      await writeCache(team, cached.repos, cached.cachedAt);
+    }
 
     return NextResponse.json({
       success: true,
